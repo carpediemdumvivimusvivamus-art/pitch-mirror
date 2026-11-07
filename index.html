@@ -356,9 +356,16 @@ function noteRecords() {
   return plan.me.map((t, i) => {
     const fr = trace.filter(p => p[3] === t), v = fr.map(p => p[4]);
     const p = i > 0 ? plan.me[i - 1] : null, prev = p && t[0] - (p[0] + p[1]) <= 1.01 ? p[2] : null;
-    const fe = at(plan.fe, t[0] + 0.01), med = medOf(v);
+    // 判定に使うのは音の「本体」: 頭の min(0.12秒, 長さの45%) を除き、終わりから0.08秒あとまで（2026-11-08）。
+    // 高さの表示は0.15秒の中央値でならすので、音が変わった直後はまだ前の音が出る。短い音（0.3秒前後）が続く速い所では、
+    // 頭まで含めると前の音に引きずられて「ずれ」と判定されていた（Fin b で、前の音の方向へのずれが続けて出た）
+    const len = t[1] * spb, skip = Math.min(0.12, len * 0.45);
+    const body = trace.filter(q => q[0] >= t[0] + skip / spb && q[0] < t[0] + t[1] + 0.08 / spb).map(q => q[4]);
+    const fe = at(plan.fe, t[0] + 0.01), med = medOf(body.length >= 2 ? body : v);
+    const pts = []; let lastMs = -999;   // 0.05秒ごとの高さ（目標からのセント）。あとで決まりを変えても数え直せるように残す
+    fr.forEach(q => { const ms = Math.round((q[0] - t[0]) * spb * 1000); if (ms - lastMs >= 50) { pts.push(ms, Math.round((q[4] - t[2]) * 100)); lastMs = ms; } });
     const rec = { bar: Math.floor(t[4] / plan.bl) + 1, sec: secOf(t[4]), nm: t[3], t: t[2], fe: fe ? fe[2] : null, feNm: fe ? fe[3] : null,
-      prev, beats: t[1], secLen: r2(t[1] * spb), n: v.length, med: r2(med), early: null, late: null, scoop: null, settle: null, cls: "none" };
+      prev, beats: t[1], secLen: r2(len), n: v.length, med: r2(med), early: null, late: null, scoop: null, settle: null, cls: "none", pts };
     if (med == null) return rec;
     rec.cls = Math.abs(med - t[2]) < 0.5 ? "ok" : (fe && Math.abs(med - fe[2]) < 0.5 ? "pull" : "off");
     const k = fr.findIndex(q => Math.abs(q[4] - t[2]) < 0.5);
@@ -475,7 +482,11 @@ function finish() {
 
 // ---------- 記録の保管（ブラウザ内）と書き出し（フォルダ／ダウンロード） ----------
 function loadTakes() { try { return JSON.parse(localStorage.getItem("mirrorTakes") || "[]"); } catch (e) { return []; } }
-function saveTakes(t) { try { localStorage.setItem("mirrorTakes", JSON.stringify(t.slice(0, 100))); } catch (e) { saveMsg("ブラウザ内の保管がいっぱいです。「まとめてダウンロード」で書き出してください。"); } }
+function saveTakes(t) { try {
+  // ブラウザの保管は約5MB。書き出し済みの古い回から捨てて3.5MBに収める（書き出していない回は捨てない）
+  t = t.slice(0, 200); let s = JSON.stringify(t);
+  while (s.length > 3.5e6) { const k = t.map(x => x.saved).lastIndexOf(true); if (k < 0) break; t.splice(k, 1); s = JSON.stringify(t); }
+  localStorage.setItem("mirrorTakes", s); } catch (e) { saveMsg("ブラウザ内の保管がいっぱいです。「まとめてダウンロード」で書き出してください。"); } }
 function showHist() {
   const t = loadTakes(); let old = []; try { old = JSON.parse(localStorage.getItem("mirrorHist") || "[]"); } catch (e) {}
   const rows = t.map(r => [r.d, r.title, r.ok, r.pull, r.saved ? "済" : "まだ"]).concat(old.map(r => [r.d, r.t, r.ok, r.pull, "—"])).slice(0, 12);
