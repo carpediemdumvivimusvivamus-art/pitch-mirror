@@ -335,12 +335,13 @@ function drawRoll(beat) {
   g.strokeStyle = css("--fg"); g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0, h); g.stroke();
 }
 function loopB() {
-  const beat = (ctx.currentTime - t0) / spb - countIn, mf = smoothed(detect());
+  const beat = (ctx.currentTime - t0) / spb - countIn; let mf = smoothed(detect());
   const target = beat >= 0 ? at(plan.me, beat) : null, fe = beat >= 0 ? at(plan.fe, beat) : null;
   showLive(mf, target || (beat < 0 ? plan.me[0] : null), fe);
   if (mf != null && target) {
+    const raw = mf; mf = fold(mf, target[2]);
     const cls = Math.abs(mf - target[2]) < 0.5 ? "ok" : (fe && Math.abs(mf - fe[2]) < 0.5 ? "pull" : "off");
-    trace.push([beat, Math.max(plan.lo, Math.min(plan.hi, mf)), cls, target, mf]);
+    trace.push([beat, Math.max(plan.lo, Math.min(plan.hi, mf)), cls, target, mf, raw]);
   }
   drawRoll(beat);
   if (beat > plan.end + 0.5) { finish(); return; }
@@ -350,6 +351,11 @@ function loopB() {
 const medOf = a => { if (!a.length) return null; const v = a.slice().sort((x, y) => x - y); return v[v.length >> 1]; };
 const r2 = x => x == null ? null : Math.round(x * 100) / 100;
 function secOf(beat) { const ss = song().secs || [[0, song().title]]; let l = ss[0][1]; for (const [b, t] of ss) if (beat >= b) l = t; return l; }
+
+// 1オクターブの取り違えを戻す（2026-11-08）。高さの検出は声の倍音を拾って1オクターブ上下に出ることがあり、
+// 取り直した16回では高さの点の15%が目標から9半音以上離れていた（となりの点と12半音前後の飛びが45か所）。
+// 歌の線の中で9半音以上外すより検出の取り違えのほうがずっと多いので、目標から9半音より離れた値は12半音ずつ寄せる
+function fold(mf, target) { while (mf - target > 9) mf -= 12; while (mf - target < -9) mf += 12; return mf; }
 
 // 1音ずつの記録を作る
 function noteRecords() {
@@ -363,7 +369,8 @@ function noteRecords() {
     const body = trace.filter(q => q[0] >= t[0] + skip / spb && q[0] < t[0] + t[1] + 0.08 / spb).map(q => q[4]);
     const fe = at(plan.fe, t[0] + 0.01), med = medOf(body.length >= 2 ? body : v);
     const pts = []; let lastMs = -999;   // 0.05秒ごとの高さ（目標からのセント）。あとで決まりを変えても数え直せるように残す
-    fr.forEach(q => { const ms = Math.round((q[0] - t[0]) * spb * 1000); if (ms - lastMs >= 50) { pts.push(ms, Math.round((q[4] - t[2]) * 100)); lastMs = ms; } });
+    // 点は寄せる前の値（q[5]）を残す
+    fr.forEach(q => { const ms = Math.round((q[0] - t[0]) * spb * 1000); if (ms - lastMs >= 50) { pts.push(ms, Math.round(((q[5] ?? q[4]) - t[2]) * 100)); lastMs = ms; } });
     const rec = { bar: Math.floor(t[4] / plan.bl) + 1, sec: secOf(t[4]), nm: t[3], t: t[2], fe: fe ? fe[2] : null, feNm: fe ? fe[3] : null,
       prev, beats: t[1], secLen: r2(len), n: v.length, med: r2(med), early: null, late: null, scoop: null, settle: null, cls: "none", pts };
     if (med == null) return rec;
