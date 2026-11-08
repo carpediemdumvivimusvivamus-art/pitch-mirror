@@ -372,7 +372,7 @@ function noteRecords() {
     // 点は寄せる前の値（q[5]）を残す
     fr.forEach(q => { const ms = Math.round((q[0] - t[0]) * spb * 1000); if (ms - lastMs >= 50) { pts.push(ms, Math.round(((q[5] ?? q[4]) - t[2]) * 100)); lastMs = ms; } });
     const rec = { bar: Math.floor(t[4] / plan.bl) + 1, sec: secOf(t[4]), nm: t[3], t: t[2], fe: fe ? fe[2] : null, feNm: fe ? fe[3] : null,
-      prev, beats: t[1], secLen: r2(len), n: v.length, med: r2(med), early: null, late: null, scoop: null, settle: null, cls: "none", pts };
+      at: r2(t[0]), prev, beats: t[1], secLen: r2(len), n: v.length, med: r2(med), early: null, late: null, scoop: null, settle: null, cls: "none", pts };
     if (med == null) return rec;
     rec.cls = Math.abs(med - t[2]) < 0.5 ? "ok" : (fe && Math.abs(med - fe[2]) < 0.5 ? "pull" : "off");
     const k = fr.findIndex(q => Math.abs(q[4] - t[2]) < 0.5);
@@ -482,9 +482,11 @@ function finish() {
   const d = new Date(), z = x => String(x).padStart(2, "0");
   const take = { v: 1, id: `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`,
     date: d.toISOString(), d: d.toLocaleString("ja-JP"), song: song().title, title, bar0: +$("bar0").value, bar1: +$("bar1").value, pct: +$("pct").value,
-    feVol: +$("feVol").value, meVol: +$("meVol").value, sens: +$("sens").value, test: !!TEST, ok: pct("ok"), pull: pct("pull"), notes, saved: false };
+    feVol: +$("feVol").value, meVol: +$("meVol").value, sens: +$("sens").value, test: !!TEST, ok: pct("ok"), pull: pct("pull"), notes, saved: false,
+    spb: r2(spb * 1000) / 1000, countIn, audio: null };
   const takes = loadTakes(); takes.unshift(take); saveTakes(takes); showHist();
-  flushUnsaved();
+  const ap = audioP; audioP = null;
+  (ap ? ap.then(async a => { if (a) { await audioPut(take.id, a); const ts = loadTakes(), x = ts.find(y => y.id === take.id); if (x) { x.audio = { mime: a.mime, offset: a.offset, bytes: a.blob.size }; saveTakes(ts); } } }) : Promise.resolve()).then(flushUnsaved);
 }
 
 // ---------- 記録の保管（ブラウザ内）と書き出し（フォルダ／ダウンロード） ----------
@@ -503,9 +505,14 @@ function showHist() {
     rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td class="ok">${r[2]}%</td><td class="pull">${r[3]}%</td><td class="sub">${r[4]}</td></tr>`).join("") + "</table>";
 }
 const saveMsg = t => { $("saveStatus").textContent = t; };
-function idb() { return new Promise((res, rej) => { const q = indexedDB.open("mirror", 1); q.onupgradeneeded = () => q.result.createObjectStore("kv"); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+function idb() { return new Promise((res, rej) => { const q = indexedDB.open("mirror", 2); q.onupgradeneeded = () => { const db = q.result; if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv"); if (!db.objectStoreNames.contains("audio")) db.createObjectStore("audio"); }; q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
 async function kvGet(k) { try { const db = await idb(); return await new Promise(res => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(null); }); } catch (e) { return null; } }
 async function kvSet(k, v) { try { const db = await idb(); return await new Promise(res => { const tx = db.transaction("kv", "readwrite"); tx.objectStore("kv").put(v, k); tx.oncomplete = () => res(true); tx.onerror = () => res(false); }); } catch (e) { return false; } }
+async function audioPut(k, v) { try { const db = await idb(); return await new Promise(res => { const tx = db.transaction("audio", "readwrite"); tx.objectStore("audio").put(v, k); tx.oncomplete = () => res(true); tx.onerror = () => res(false); }); } catch (e) { return false; } }
+async function audioGet(k) { try { const db = await idb(); return await new Promise(res => { const q = db.transaction("audio").objectStore("audio").get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch (e) { return null; } }
+async function audioDel(k) { try { const db = await idb(); return await new Promise(res => { const tx = db.transaction("audio", "readwrite"); tx.objectStore("audio").delete(k); tx.oncomplete = () => res(true); tx.onerror = () => res(false); }); } catch (e) { return false; } }
+const audioExt = m => (m || "").includes("ogg") ? "ogg" : (m || "").includes("mp4") ? "m4a" : "webm";
+const b64 = blob => new Promise(res => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = () => res(""); r.readAsDataURL(blob); });
 let dirHandle = null;
 const fileName = t => t.id + "_" + t.song.split("_").slice(0, 2).join("_") + "_" + t.bar0 + "-" + t.bar1 + ".json";
 async function canWrite() { return dirHandle && (await dirHandle.queryPermission({ mode: "readwrite" })) === "granted"; }
@@ -517,7 +524,10 @@ async function flushUnsaved() {
   for (const t of todo) {
     try {
       const fh = await dirHandle.getFileHandle(fileName(t), { create: true }), w = await fh.createWritable();
-      const { saved, ...body } = t; await w.write(JSON.stringify(body, null, 1)); await w.close(); t.saved = true; ok++;
+      const { saved, ...body } = t; await w.write(JSON.stringify(body, null, 1)); await w.close();
+      const a = await audioGet(t.id);
+      if (a) { const ah = await dirHandle.getFileHandle(fileName(t).replace(/\.json$/, "." + audioExt(a.mime)), { create: true }), aw = await ah.createWritable(); await aw.write(a.blob); await aw.close(); await audioDel(t.id); }
+      t.saved = true; ok++;
     } catch (e) { saveMsg("書き出しに失敗しました: " + e.name + "（「まとめてダウンロード」を使ってください）"); break; }
   }
   saveTakes(takes); showHist(); await saveStatusLine(ok);
@@ -541,14 +551,19 @@ $("pickDir").onclick = async () => {
     flushUnsaved();
   } catch (e) { saveMsg(e.name === "AbortError" ? "フォルダ選びをやめました。" : "フォルダが使えません: " + e.name + "（「まとめてダウンロード」を使ってください）"); }
 };
-$("dlRec").onclick = () => {
+$("dlRec").onclick = async () => {
   const takes = loadTakes(); let pick = takes.filter(t => !t.saved); if (!pick.length) pick = takes;
   if (!pick.length) { saveMsg("まだ記録がありません。"); return; }
-  const blob = new Blob([JSON.stringify(pick.map(({ saved, ...b }) => b), null, 1)], { type: "application/json" });
+  saveMsg("書き出しを用意しています…");
+  const out = [];   // 録音はファイルの中に文字（base64）で入れる。取り込みのときに音声ファイルへ戻す
+  for (const { saved, ...b } of pick) { const a = await audioGet(b.id); out.push(a ? { ...b, audioB64: await b64(a.blob) } : b); }
+  const blob = new Blob([JSON.stringify(out, null, 1)], { type: "application/json" });
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "mirror_records_" + pick[0].id + ".json"; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   pick.forEach(t => t.saved = true); saveTakes(takes); showHist();
-  saveMsg(pick.length + "回分をダウンロードしました（ダウンロードフォルダの mirror_records_….json）。");
+  const withA = out.filter(x => x.audioB64).length;
+  setTimeout(() => pick.forEach(t => audioDel(t.id)), 3000);   // 書き出した録音はブラウザから消す（記録の数字は残る）
+  saveMsg(pick.length + "回分をダウンロードしました（うち録音つき " + withA + "回。ダウンロードフォルダの mirror_records_….json）。");
 };
 $("seeSong").onclick = () => { const s = song().title, t = loadTakes().filter(x => x.song === s); showHabit(t.flatMap(x => x.notes), "くせの地図（" + s.replace(/_/g, " ") + "・これまで " + t.length + "回分）"); };
 $("seeAll").onclick = () => { const t = loadTakes(); showHabit(t.flatMap(x => x.notes), "くせの地図（全部の曲・これまで " + t.length + "回分）"); };
@@ -567,9 +582,26 @@ async function start() {
   if (!(await ensureAudio())) return;
   running = true; $("start").textContent = "とめる"; $("start").classList.add("stop"); $("result").style.display = "none";
   if (mode === "A") { holdFe(); loopA(); }
-  else { if (!startB()) { stop(); return; } loopB(); }
+  else { if (!startB()) { stop(); return; } startRec(); loopB(); }
+}
+// 歌った声の録音（② 曲で歌う の1回ごと・2026-11-08）。検出の数字が確かでない所を、あとで録音から測り直すため
+let recorder = null, audioP = null;
+function startRec() {
+  recorder = null; audioP = null;
+  if (!micStream || !window.MediaRecorder) return;
+  try {
+    const mime = ["audio/webm;codecs=opus", "audio/ogg;codecs=opus", "audio/mp4"].find(m => MediaRecorder.isTypeSupported(m)) || "";
+    const r = new MediaRecorder(micStream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : { audioBitsPerSecond: 48000 });
+    const chunks = [], c0 = ctx.currentTime;
+    r.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    audioP = new Promise(res => { r.onstop = () => res(r.keep && chunks.length ? { blob: new Blob(chunks, { type: r.mimeType || mime }), mime: r.mimeType || mime, offset: Math.round((t0 - c0) * 1000) / 1000 } : null); });
+    r.start(); recorder = r;
+  } catch (e) { recorder = null; audioP = null; }
 }
 function stop(keep) {
+  if (recorder && recorder.state !== "inactive") { recorder.keep = !!keep; try { recorder.stop(); } catch (e) {} }
+  if (!keep) audioP = null;
+  recorder = null;
   running = false; cancelAnimationFrame(raf); $("start").textContent = "はじめる"; $("start").classList.remove("stop");
   holdNodes.concat(feHoldNodes).forEach(x => { try { x.stop ? x.stop() : x.disconnect(); } catch (e) {} }); holdNodes = []; feHoldNodes = [];
 }
