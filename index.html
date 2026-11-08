@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>音程ミラー</title>
 <style>
-:root{--bg:#fbf8f4;--fg:#2b2622;--sub:#7a7068;--card:#fff;--line:#e6dfd6;--me:#2f6fd6;--fe:#a49a90;--ok:#1f9d55;--pull:#d6336c;--off:#e8890c}
+:root{--bg:#fbf8f4;--fg:#2b2622;--sub:#7a7068;--card:#fff;--line:#e6dfd6;--me:#2f6fd6;--fe:#a49a90;--ok:#1f9d55;--pull:#d6336c;--off:#e8890c;--early:#7b5cd6}
 @media (prefers-color-scheme:dark){:root{--bg:#1d1b19;--fg:#ece6df;--sub:#a59c93;--card:#272422;--line:#3a3532;--fe:#6f665e}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:"Hiragino Sans","Yu Gothic UI","Meiryo",sans-serif;line-height:1.6}
@@ -29,7 +29,7 @@ canvas{width:100%;height:380px;display:block;border-radius:8px;background:var(--
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}
 table{border-collapse:collapse;width:100%;font-size:14px}
 td,th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
-.ok{color:var(--ok)}.pull{color:var(--pull)}.off{color:var(--off)}
+.ok{color:var(--ok)}.pull{color:var(--pull)}.off{color:var(--off)}.early{color:var(--early)}
 #needle{height:28px;position:relative;background:linear-gradient(90deg,transparent 40%,rgba(31,157,85,.18) 40%,rgba(31,157,85,.18) 60%,transparent 60%);border:1px solid var(--line);border-radius:6px;margin-top:6px}
 #needle i{position:absolute;top:2px;bottom:2px;width:4px;background:var(--fg);left:50%;border-radius:2px;transition:left .08s}
 #needle::after{content:"";position:absolute;left:50%;top:0;bottom:0;border-left:1px dashed var(--sub)}
@@ -368,7 +368,7 @@ function judge(raw, t, fe) {
 
 // 1音ずつの記録を作る
 function noteRecords() {
-  return plan.me.map((t, i) => {
+  return markEarly(plan.me.map((t, i) => {
     const fr = trace.filter(p => p[3] === t), v = fr.map(p => p[4]);
     const p = i > 0 ? plan.me[i - 1] : null, prev = p && t[0] - (p[0] + p[1]) <= 1.01 ? p[2] : null;
     // 判定に使うのは音の「本体」: 頭の min(0.12秒, 長さの45%) を除き、終わりから0.08秒あとまで（2026-11-08）。
@@ -393,7 +393,17 @@ function noteRecords() {
       rec.early = r2(medOf(v.slice(0, third))); rec.late = r2(medOf(v.slice(-third)));
     }
     return rec;
+  }));
+}
+// 「早い」（2026-11-08）: 外れた音が、すぐ続く次の音の高さ（オクターブ直しを含め±0.5半音以内）なら、音程でなく次の音へ早く移ったと見る。
+// わがフィオルディリージの8回で、4・5・7小節の外れた音は、その音より1つ先の音に当たっていることのほうが多かった（146音中、その音23・次の音38）
+function markEarly(recs) {
+  recs.forEach((r, i) => {
+    const nx = recs[i + 1];
+    if (r.cls !== "off" || !nx || nx.t === r.t || nx.at - (r.at + r.beats) > 0.01) return;
+    if (Math.abs(fold(r.med, nx.t) - nx.t) < 0.5) { r.cls = "early"; r.nxNm = nx.nm; }
   });
+  return recs;
 }
 
 // くせの地図（1回分でも、何回分をまとめても同じ計算）
@@ -417,6 +427,7 @@ const HINTS = {
   "drift": "伸ばす音の後半で針を見る。息を最後まで残す。",
   "scoop": "出だしから目標の高さで入る。①で鳴らしてすぐ同じ高さで歌う。",
   "settle": "入る前に音を頭の中で鳴らしておく。①の「鳴らす→歌う」。",
+  "early": "伴奏の音を聞いてから次の音へ動く（先に動かない）。60%で同じ所を3回。",
   "pull": "フェランドを小さく（「小さく」）して自分の線を歌い、慣れたら「ふつう」に戻す。",
   "overall": "歌う前に①で最初の音を鳴らして合わせてから入る。",
 };
@@ -451,6 +462,9 @@ function analyze(notes) {
   const pl = sung.filter(r => r.cls === "pull").length, wf = sung.filter(r => r.fe != null).length;
   res.pull = wf ? Math.round(pl / wf * 100) : null;
   if (wf && pl >= 2 && pl / wf >= 0.15) cand.push({ sev: pl / wf / 0.2, key: "pull", text: "フェランドの音に寄る（" + pl + "音／重なる " + wf + "音）" });
+  const er = sung.filter(r => r.cls === "early").length;
+  res.earlyN = er;
+  if (er >= 2 && er / sung.length >= 0.1) cand.push({ sev: er / sung.length / 0.15, key: "early", text: "次の音へ早く移る（走る）（" + er + "音／" + sung.length + "音）" });
   res.top = cand.sort((a, b) => b.sev - a.sev).slice(0, 3).map(c => ({ text: c.text, hint: HINTS[c.key] || "" }));
   return res;
 }
@@ -479,14 +493,14 @@ function finish() {
     const head = `<tr>${multi ? "<td class='sub'>" + r.sec.split("_").slice(1, 3).join(" ") + "</td>" : ""}<td>${r.bar}</td><td>${r.nm}</td>`;
     if (r.cls === "none") return head + "<td>—</td><td class='sub'>声なし</td></tr>";
     const dd = r.med - r.t;
-    const word = r.cls === "ok" ? "合っている" : r.cls === "pull" ? "フェランドの音（" + r.feNm + "）" : (dd > 0 ? "高い" : "低い") + " " + Math.abs(dd).toFixed(1) + "半音";
+    const word = r.cls === "ok" ? "合っている" : r.cls === "pull" ? "フェランドの音（" + r.feNm + "）" : r.cls === "early" ? "早い（もう次の音 " + r.nxNm + "）" : (dd > 0 ? "高い" : "低い") + " " + Math.abs(dd).toFixed(1) + "半音";
     return head + `<td>${octName(Math.round(r.med))}</td><td class="${r.cls}">${word}</td></tr>`;
   }).join("");
   const title = song().title.replace(/_/g, " ") + "（" + $("bar0").value + "〜" + $("bar1").value + "小節・" + $("pct").value + "%）";
   $("result").style.display = "";
-  $("result").innerHTML = `<b>結果　${title}</b><div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span></div>
+  $("result").innerHTML = `<b>結果　${title}</b><div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span>${notes.some(r => r.cls === "early") ? `　<span class="early">早く次の音へ ${notes.filter(r => r.cls === "early").length}音</span>` : ""}</div>
   <table><tr>${multi ? "<th>場面</th>" : ""}<th>小節</th><th>目標</th><th>歌った音</th><th>判定</th></tr>${rows}</table>
-  <div class="sub" style="margin-top:6px">合っている＝目標から±半音の半分以内。引っぱられ＝フェランドの音から±半音の半分以内。</div>`;
+  <div class="sub" style="margin-top:6px">合っている＝目標から±半音の半分以内。引っぱられ＝フェランドの音から±半音の半分以内。早い＝外れた音が、すぐ続く次の音の高さになっている（音程でなく、動くのが早い）。</div>`;
   showHabit(notes, "くせの地図（この1回）");
   const d = new Date(), z = x => String(x).padStart(2, "0");
   const take = { v: 1, id: `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`,
