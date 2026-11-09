@@ -30,6 +30,9 @@ canvas{width:100%;height:380px;display:block;border-radius:8px;background:var(--
 table{border-collapse:collapse;width:100%;font-size:14px}
 td,th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
 .ok{color:var(--ok)}.pull{color:var(--pull)}.off{color:var(--off)}.early{color:var(--early)}
+.guess button{font-size:14px;padding:4px 10px;margin:2px 3px 2px 0;border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;cursor:pointer}
+.guess button.on{background:var(--me);color:#fff;border-color:var(--me)}
+.guess td{padding:3px 6px}
 #needle{height:28px;position:relative;background:linear-gradient(90deg,transparent 40%,rgba(31,157,85,.18) 40%,rgba(31,157,85,.18) 60%,transparent 60%);border:1px solid var(--line);border-radius:6px;margin-top:6px}
 #needle i{position:absolute;top:2px;bottom:2px;width:4px;background:var(--fg);left:50%;border-radius:2px;transition:left .08s}
 #needle::after{content:"";position:absolute;left:50%;top:0;bottom:0;border-left:1px dashed var(--sub)}
@@ -53,6 +56,7 @@ td,th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
       <label>速さ <select id="pct"><option>60</option><option selected>70</option><option>85</option><option>100</option></select>%</label>
       <label>フェランド <select id="feVol"><option value="1">ふつう</option><option value="0.4">小さく</option><option value="0">なし</option></select></label>
       <label>自分の線の音 <select id="meVol"><option value="0" selected>なし（自分で歌う）</option><option value="0.35">小さく</option><option value="0.8">ふつう</option></select></label>
+      <label><input type="checkbox" id="hideMe"> 歌っている間は自分の高さを隠す</label>
     </span>
     <span id="optA">
       <label>つかむ音 <select id="anchor"></select></label>
@@ -330,14 +334,16 @@ function drawRoll(beat) {
     g.fillStyle = css(col); g.globalAlpha = col === "--me" ? 0.85 : 0.6; g.fillRect(Math.max(L, xa), Y(n[2]) - bh / 2, xb - Math.max(L, xa) - 2, bh); g.globalAlpha = 1;
     if (xa > L) { g.fillStyle = "#fff"; g.fillText(n[3], xa + 3, Y(n[2])); }
   }));
-  for (const p of trace) { const x = X(p[0]); if (x < L || x > w) continue; g.fillStyle = css(p[2] === "ok" ? "--ok" : p[2] === "pull" ? "--pull" : "--off"); g.fillRect(x - 1.5, Y(p[1]) - 1.5, 3, 3); }
+  if (!$("hideMe").checked) for (const p of trace) { const x = X(p[0]); if (x < L || x > w) continue; g.fillStyle = css(p[2] === "ok" ? "--ok" : p[2] === "pull" ? "--pull" : "--off"); g.fillRect(x - 1.5, Y(p[1]) - 1.5, 3, 3); }
   for (let b = Math.ceil(beat - span * 0.3); b < beat + span; b++) if (b % plan.bl === 0 && b >= 0) { g.fillStyle = css("--sub"); g.fillText((b / plan.bl + +$("bar0").value) + "", X(b) + 2, 8); }
   g.strokeStyle = css("--fg"); g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0, h); g.stroke();
 }
 function loopB() {
   const beat = (ctx.currentTime - t0) / spb - countIn; let mf = smoothed(detect());
   const target = beat >= 0 ? at(plan.me, beat) : null, fe = beat >= 0 ? at(plan.fe, beat) : null;
-  showLive(mf, target || (beat < 0 ? plan.me[0] : null), fe);
+  // 「自分の高さを隠す」（2026-11-09）: 画面に頼らず歌う回。検出と記録はそのまま続け、表示だけ止める
+  if ($("hideMe").checked) { showLive(null, null, null); $("diff").textContent = "隠しています"; $("itv").textContent = "—"; }
+  else showLive(mf, target || (beat < 0 ? plan.me[0] : null), fe);
   if (mf != null && target) {
     const raw = mf, j = judge(mf, target[2], fe ? fe[2] : null), cls = j[1]; mf = j[0];
     trace.push([beat, Math.max(plan.lo, Math.min(plan.hi, mf)), cls, target, mf, raw]);
@@ -497,19 +503,101 @@ function finish() {
     return head + `<td>${octName(Math.round(r.med))}</td><td class="${r.cls}">${word}</td></tr>`;
   }).join("");
   const title = song().title.replace(/_/g, " ") + "（" + $("bar0").value + "〜" + $("bar1").value + "小節・" + $("pct").value + "%）";
-  $("result").style.display = "";
-  $("result").innerHTML = `<b>結果　${title}</b><div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span>${notes.some(r => r.cls === "early") ? `　<span class="early">早く次の音へ ${notes.filter(r => r.cls === "early").length}音</span>` : ""}</div>
+  const answer = `<div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span>${notes.some(r => r.cls === "early") ? `　<span class="early">早く次の音へ ${notes.filter(r => r.cls === "early").length}音</span>` : ""}</div>
   <table><tr>${multi ? "<th>場面</th>" : ""}<th>小節</th><th>目標</th><th>歌った音</th><th>判定</th></tr>${rows}</table>
   <div class="sub" style="margin-top:6px">合っている＝目標から±半音の半分以内。引っぱられ＝フェランドの音から±半音の半分以内。早い＝外れた音が、すぐ続く次の音の高さになっている（音程でなく、動くのが早い）。</div>`;
-  showHabit(notes, "くせの地図（この1回）");
   const d = new Date(), z = x => String(x).padStart(2, "0");
   const take = { v: 1, id: `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`,
     date: d.toISOString(), d: d.toLocaleString("ja-JP"), song: song().title, title, bar0: +$("bar0").value, bar1: +$("bar1").value, pct: +$("pct").value,
     feVol: +$("feVol").value, meVol: +$("meVol").value, sens: +$("sens").value, test: !!TEST, ok: pct("ok"), pull: pct("pull"), notes, saved: false,
-    spb: r2(spb * 1000) / 1000, countIn, audio: null };
+    spb: r2(spb * 1000) / 1000, countIn, audio: null, hideMe: $("hideMe").checked, self: null };
   const takes = loadTakes(); takes.unshift(take); saveTakes(takes); showHist();
+  showGuess(take, notes, title, answer);
   const ap = audioP; audioP = null;
-  (ap ? ap.then(async a => { if (a) { await audioPut(take.id, a); const ts = loadTakes(), x = ts.find(y => y.id === take.id); if (x) { x.audio = { mime: a.mime, offset: a.offset, bytes: a.blob.size }; saveTakes(ts); } } }) : Promise.resolve()).then(flushUnsaved);
+  lastPlay = { plan, spb, countIn, audio: null };
+  takeReady = (ap ? ap.then(async a => { if (a) { lastPlay.audio = a; showPlayButtons(); await audioPut(take.id, a); const ts = loadTakes(), x = ts.find(y => y.id === take.id); if (x) { x.audio = { mime: a.mime, offset: a.offset, bytes: a.blob.size }; saveTakes(ts); } } }) : Promise.resolve()).then(flushUnsaved);
+}
+
+// ---------- 自分の予想 → 答え合わせ（2026-11-09） ----------
+// 答えを見る前に自分のずれを予想すると、ずれに自分で気づく力が育つ（運動学習の研究: Barros ほか 2019 など）。
+// 答え合わせは押したときだけ開く。予想は記録の self に入り、「記録を見て」のときに違和感の場所から見る材料にする
+// （本人の軸「自分の違和感が自分の世界での正解」11/8・03_REPORTS/20261109_調査_歌の音程練習の改善案.md）
+let takeReady = Promise.resolve(), lastPlay = null, playNodes = [];
+const GUESS = [["ok", "合った"], ["high", "高い"], ["low", "低い"], ["miss", "外れた"]];
+const PAGE_WORD = { ok: "合った", high: "高い", low: "低い", none: "声なし" };
+// ページから見た小節ごとの判定: 3分の2以上当たれば「合った」。それ以外は、外れた音のずれの真ん中で高い／低い（フェランド・早いは添え書き）
+function pageBar(recs) {
+  const sung = recs.filter(r => r.cls !== "none");
+  if (!sung.length) return { v: "none", note: "" };
+  const ok = sung.filter(r => r.cls === "ok").length;
+  if (ok / sung.length >= 2 / 3) return { v: "ok", note: ok + "/" + sung.length + "音" };
+  const miss = sung.filter(r => r.cls !== "ok"), dv = medOf(miss.map(r => r.cls === "pull" ? r.fe - r.t : fold(r.med, r.t) - r.t));
+  const pl = miss.filter(r => r.cls === "pull").length, ea = miss.filter(r => r.cls === "early").length;
+  const why = pl * 2 > miss.length ? "フェランドへ" : ea * 2 > miss.length ? "次の音へ早い" : "";
+  return { v: dv > 0 ? "high" : "low", note: ok + "/" + sung.length + "音" + (why ? "・" + why : "") };
+}
+function showGuess(take, notes, title, answer) {
+  const bars = [...new Set(notes.map(r => r.bar))], guess = {};
+  $("habit").style.display = "none"; $("result").style.display = "";
+  $("result").innerHTML = `<b>結果　${title}</b>
+  <div class="row" id="playRow" style="display:none;margin:4px 0">
+    <button class="go" id="playRec" style="background:#888">録音を聞く</button>
+    <button class="go" id="playMe" style="background:#888">自分の線と重ねて聞く</button>
+    <span class="sub">重ねると、ずれている所でうなりが聞こえます。</span></div>
+  <div id="guessBox"><div style="margin:6px 0"><b>答え合わせの前に：歌ってみてどうでしたか</b></div>
+    <div class="sub">違和感のあった小節だけ押してください。分からない小節はそのままで大丈夫です（もう一度押すと消えます）。</div>
+    <table class="guess">${bars.map(b => `<tr><td>${b}小節</td><td>${GUESS.map(([k, w]) => `<button data-bar="${b}" data-k="${k}">${w}</button>`).join("")}</td></tr>`).join("")}</table>
+    <div style="margin:6px 0"><label>ほかに気づいたこと <input id="guessNote" style="width:min(420px,60vw);font-size:14px"></label></div>
+    <button class="go" id="reveal">答え合わせを見る</button></div>
+  <div id="answer" style="display:none"></div>`;
+  $("result").querySelectorAll(".guess button").forEach(btn => btn.onclick = () => {
+    const b = btn.dataset.bar, k = btn.dataset.k; guess[b] = guess[b] === k ? undefined : k;
+    $("result").querySelectorAll(`.guess button[data-bar="${b}"]`).forEach(x => x.classList.toggle("on", x.dataset.k === guess[b]));
+  });
+  $("playRec").onclick = () => playBack(false); $("playMe").onclick = () => playBack(true);
+  if (lastPlay && lastPlay.audio) showPlayButtons();
+  $("reveal").onclick = () => {
+    const page = {}; let match = 0, of = 0;
+    const rows = bars.map(b => {
+      const p = pageBar(notes.filter(r => r.bar === b)), g = guess[b]; page[b] = p.v;
+      let m = "—";
+      if (g && p.v !== "none") { of++; const hit = g === p.v || (g === "miss" && p.v !== "ok"); if (hit) match++; m = hit ? "<span class='ok'>○</span>" : "<span class='off'>×</span>"; }
+      return `<tr><td>${b}</td><td>${g ? GUESS.find(x => x[0] === g)[1] : "<span class='sub'>—</span>"}</td><td class="${p.v === "ok" ? "ok" : p.v === "none" ? "sub" : "off"}">${PAGE_WORD[p.v]}<span class="sub">（${p.note}）</span></td><td>${m}</td></tr>`;
+    }).join("");
+    const nt = $("guessNote").value.trim();
+    $("guessBox").style.display = "none"; $("answer").style.display = "";
+    $("answer").innerHTML = `<div style="margin:6px 0"><b>自分の予想とページ</b>　${of ? `予想した ${of}小節のうち、ページと同じ向き ${match}小節` : "予想は入れませんでした"}</div>
+    <table><tr><th>小節</th><th>自分の予想</th><th>ページ（当たった音の数）</th><th>同じ向き</th></tr>${rows}</table>
+    ${nt ? `<div class="sub" style="margin-top:4px">気づいたこと: ${nt.replace(/</g, "&lt;")}</div>` : ""}
+    <div class="sub" style="margin-top:4px">ページの小節の判定: 3分の2以上の音が当たれば「合った」、それ以外は外れた音のずれの真ん中で「高い／低い」。ページの判定も玉石混交です。食い違ったら、録音を聞いて自分の耳で決めてください。</div>${answer}`;
+    showHabit(notes, "くせの地図（この1回）");
+    const self = { bars: Object.fromEntries(Object.entries(guess).filter(([, v]) => v)), note: nt, page, match, of, at: new Date().toISOString() };
+    takeReady = takeReady.then(() => {
+      const ts = loadTakes(), x = ts.find(y => y.id === take.id); if (!x) return;
+      x.self = self; x.saved = false; saveTakes(ts); showHist(); return flushUnsaved();
+    });
+  };
+}
+
+// ---------- 録音の聞き返し（2026-11-09） ----------
+// 判定するのは自分の耳。録音だけ、または自分の線の音を重ねて鳴らす（録音の中の t0 の位置＝offset に合わせる）
+function showPlayButtons() { const el = $("playRow"); if (el) el.style.display = ""; }
+function stopPlay() {
+  playNodes.forEach(x => { try { x.stop(); } catch (e) {} }); playNodes = [];
+  if ($("playRec")) { $("playRec").textContent = "録音を聞く"; $("playMe").textContent = "自分の線と重ねて聞く"; }
+}
+async function playBack(withMe) {
+  if (playNodes.length) { stopPlay(); return; }
+  if (!lastPlay || !lastPlay.audio || !ctx) return;
+  try {
+    if (!lastPlay.buf) lastPlay.buf = await ctx.decodeAudioData(await lastPlay.audio.blob.arrayBuffer());
+  } catch (e) { $("playRow").querySelector(".sub").textContent = "このブラウザでは録音を鳴らせませんでした（" + e.name + "）"; return; }
+  if (ctx.state === "suspended") await ctx.resume();
+  const T = ctx.currentTime + 0.1, src = ctx.createBufferSource(); src.buffer = lastPlay.buf; src.connect(ctx.destination); src.start(T);
+  src.onended = () => { if (playNodes.includes(src)) stopPlay(); };
+  playNodes.push(src);
+  if (withMe) { const L = lastPlay, base = T + L.audio.offset; L.plan.me.forEach(n => playNodes.push(voice(n[2], base + (L.countIn + n[0]) * L.spb, n[1] * L.spb * 0.97, 0.45, 0.45)[0])); }
+  $(withMe ? "playMe" : "playRec").textContent = "とめる";
 }
 
 // ---------- 記録の保管（ブラウザ内）と書き出し（フォルダ／ダウンロード） ----------
@@ -603,7 +691,8 @@ function holdFe() {
 $("anchor").onchange = () => { if (running && mode === "A") holdFe(); };
 async function start() {
   if (!(await ensureAudio())) return;
-  running = true; $("start").textContent = "とめる"; $("start").classList.add("stop"); $("result").style.display = "none";
+  stopPlay();
+  running = true; $("start").textContent = "とめる"; $("start").classList.add("stop"); $("result").style.display = "none"; $("habit").style.display = "none";
   if (mode === "A") { holdFe(); loopA(); }
   else { if (!startB()) { stop(); return; } startRec(); loopB(); }
 }
