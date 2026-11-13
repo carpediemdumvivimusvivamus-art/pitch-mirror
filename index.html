@@ -404,7 +404,10 @@ function loopB() {
   else showLive(mf, target || (beat < 0 ? plan.me[0] : null), fe);
   if (mf != null && target) {
     const raw = mf, j = judge(mf, target[2], fe ? fe[2] : null), cls = j[1]; mf = j[0];
-    trace.push([beat, Math.max(plan.lo, Math.min(plan.hi, mf)), cls, target, mf, raw]);
+    // 描く高さ（2026-11-14）: 引っぱられの点も、フェランドの高さに移さず歌った高さのまま描く（色だけピンク）。
+    // 移して描くと、同じ声が1オクターブ上にも点を落とし、線が2本に割れて見えた（本人のスクショ・No.1 28〜29小節）
+    const drawY = cls === "pull" ? fold(raw, target[2]) : mf;
+    trace.push([beat, Math.max(plan.lo, Math.min(plan.hi, drawY)), cls, target, mf, raw]);
   }
   showShift(beat);
   drawRoll(beat);
