@@ -120,6 +120,7 @@ details.more summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:4
     <div><small>フェランドから</small><b id="itv">—</b><small id="itvSub">&nbsp;</small></div>
   </div>
   <div id="needle"><i id="needleI"></i></div>
+  <div id="shiftNote" style="color:var(--pull);font-size:13px;font-weight:bold;min-height:0"></div>
   <div class="sub" style="display:flex;justify-content:space-between"><span>← 低い</span><span>目標ぴったり（緑の帯＝±20セント）</span><span>高い →</span></div>
 </div>
 
@@ -405,9 +406,31 @@ function loopB() {
     const raw = mf, j = judge(mf, target[2], fe ? fe[2] : null), cls = j[1]; mf = j[0];
     trace.push([beat, Math.max(plan.lo, Math.min(plan.hi, mf)), cls, target, mf, raw]);
   }
+  showShift(beat);
   drawRoll(beat);
   if (beat > plan.end + 0.5) { finish(); return; }
   raf = requestAnimationFrame(loopB);
+}
+// 全体の高さのずれ（2026-11-14）: 1音ずつの判定とは別に、「全体に何半音ずれた所を歌っているか」を1行で出す。
+// 直近1.5秒の（歌った高さ−目標）の真ん中の値が3半音以上ずれていたら出す。フェランドの線の1オクターブ上下・同じ高さに近ければ添える
+function shiftText(pairs) {   // pairs: [歌った高さ, 目標, フェランド|null]
+  if (pairs.length < 6) return "";
+  const m = medOf(pairs.map(p => p[0] - p[1]));
+  if (Math.abs(m) < 3) return "";
+  const withFe = pairs.filter(p => p[2] != null), mf = withFe.length >= 4 ? medOf(withFe.map(p => p[0] - p[2])) : null;
+  let s = "全体に約" + Math.abs(m).toFixed(1) + "半音" + (m < 0 ? "低い" : "高い") + "所を歌っています";
+  if (mf != null) {
+    if (Math.abs(mf + 12) < 1.5) s += "（フェランドの線の1オクターブ下とほぼ同じ高さ）";
+    else if (Math.abs(mf - 12) < 1.5) s += "（フェランドの線の1オクターブ上とほぼ同じ高さ）";
+    else if (Math.abs(mf) < 1.5) s += "（フェランドの線とほぼ同じ高さ）";
+  }
+  return s + "。最初の音を「① 自分の音をつかむ」で合わせてから歌ってみてください";
+}
+function showShift(beat) {
+  const el = $("shiftNote"); if (!el) return;
+  if ($("hideMe").checked) { el.textContent = ""; return; }
+  const rec = trace.filter(p => p[0] > beat - 1.5 / spb);
+  el.textContent = shiftText(rec.map(p => { const f = at(plan.fe, p[0]); return [p[5], p[3][2], f ? f[2] : null]; }));
 }
 // ---------- 結果・記録 ----------
 const medOf = a => { if (!a.length) return null; const v = a.slice().sort((x, y) => x - y); return v[v.length >> 1]; };
@@ -417,7 +440,10 @@ function secOf(beat) { const ss = song().secs || [[0, song().title]]; let l = ss
 // 1オクターブの取り違えを戻す（2026-11-08）。高さの検出は声の倍音を拾って1オクターブ上下に出ることがあり、
 // 取り直した16回では高さの点の15%が目標から9半音以上離れていた（となりの点と12半音前後の飛びが45か所）。
 // 歌の線の中で9半音以上外すより検出の取り違えのほうがずっと多いので、目標から9半音より離れた値は12半音ずつ寄せる
-function fold(mf, target) { while (mf - target > 9) mf -= 12; while (mf - target < -9) mf += 12; return mf; }
+// 2026-11-14: 寄せるのは「ほぼちょうど1オクターブ」違うときだけにした（旧: 9半音より離れたら寄せる）。
+// No.1 1〜4小節を4回、実際に約8.7半音低く（フェランドの線の1オクターブ下を）歌ったとき、9半音の境目の内と外で
+// 「8半音低い」と「3半音高い・引っぱられ」が交互に出て、判定がでたらめに見えた。録音を別の方法（pyin）で測っても同じ高さだった
+function fold(mf, target) { while (mf - target > 10.5) mf -= 12; while (mf - target < -10.5) mf += 12; return mf; }
 // 判定（2026-11-08）: ①オクターブ直しで目標に当たれば「合っている」 ②フェランドと同じ音名（オクターブちがいも含む）なら「引っぱられ」
 // （音名の差が0.75半音未満で、目標より近いとき）③それ以外は「ずれ」。No.1 a でフェランドの線を1オクターブ下で歌った2回が、引っぱられに数えられず、
 // オクターブ直しで「2半音高い」と出ていたため。引っぱられの点はフェランドの音の高さに置く
@@ -442,14 +468,17 @@ function noteRecords() {
     // 頭まで含めると前の音に引きずられて「ずれ」と判定されていた（Fin b で、前の音の方向へのずれが続けて出た）
     const len = t[1] * spb, skip = Math.min(0.12, len * 0.45);
     const body = trace.filter(q => q[0] >= t[0] + skip / spb && q[0] < t[0] + t[1] + 0.08 / spb).map(q => q[4]);
-    const fe = at(plan.fe, t[0] + 0.01), med = medOf(body.length >= 2 ? body : v);
+    // 2026-11-14: 音の判定は、寄せる前の高さ（q[5]）の真ん中の値で1回だけ行う（1点ずつ寄せた値の真ん中だと、寄せた点と寄せない点が混ざる）
+    const rawBody = trace.filter(q => q[0] >= t[0] + skip / spb && q[0] < t[0] + t[1] + 0.08 / spb).map(q => q[5] ?? q[4]);
+    const rawMed = medOf(rawBody.length >= 2 ? rawBody : fr.map(q => q[5] ?? q[4]));
+    const fe = at(plan.fe, t[0] + 0.01), med = rawMed == null ? null : judge(rawMed, t[2], fe ? fe[2] : null)[0];
     const pts = []; let lastMs = -999;   // 0.05秒ごとの高さ（目標からのセント）。あとで決まりを変えても数え直せるように残す
     // 点は寄せる前の値（q[5]）を残す
     fr.forEach(q => { const ms = Math.round((q[0] - t[0]) * spb * 1000); if (ms - lastMs >= 50) { pts.push(ms, Math.round(((q[5] ?? q[4]) - t[2]) * 100)); lastMs = ms; } });
     const rec = { bar: Math.floor(t[4] / plan.bl) + 1, sec: secOf(t[4]), nm: t[3], t: t[2], fe: fe ? fe[2] : null, feNm: fe ? fe[3] : null,
-      at: r2(t[0]), prev, beats: t[1], secLen: r2(len), n: v.length, med: r2(med), early: null, late: null, scoop: null, settle: null, cls: "none", pts };
+      at: r2(t[0]), prev, beats: t[1], secLen: r2(len), n: v.length, med: r2(med), raw: r2(rawMed), early: null, late: null, scoop: null, settle: null, cls: "none", pts };
     if (med == null) return rec;
-    rec.cls = judge(med, t[2], fe ? fe[2] : null)[1];
+    rec.cls = judge(rawMed, t[2], fe ? fe[2] : null)[1];
     const k = fr.findIndex(q => Math.abs(q[4] - t[2]) < 0.5);
     rec.settle = k < 0 ? null : r2(Math.max(0, (fr[k][0] - t[0]) * spb));
     const head = fr.filter(q => (q[0] - t[0]) * spb < 0.2).map(q => q[4]);
@@ -467,7 +496,7 @@ function markEarly(recs) {
   recs.forEach((r, i) => {
     const nx = recs[i + 1];
     if (r.cls !== "off" || !nx || nx.t === r.t || nx.at - (r.at + r.beats) > 0.01) return;
-    if (Math.abs(fold(r.med, nx.t) - nx.t) < 0.5) { r.cls = "early"; r.nxNm = nx.nm; }
+    if (Math.abs(fold(r.raw ?? r.med, nx.t) - nx.t) < 0.5) { r.cls = "early"; r.nxNm = nx.nm; }
   });
   return recs;
 }
@@ -559,12 +588,14 @@ function finish() {
     const head = `<tr>${multi ? "<td class='sub'>" + r.sec.split("_").slice(1, 3).join(" ") + "</td>" : ""}<td>${r.bar}</td><td>${r.nm}</td>`;
     if (r.cls === "none") return head + "<td>—</td><td class='sub'>声なし</td></tr>";
     const dd = r.med - r.t;
-    const word = r.cls === "ok" ? "合っている" : r.cls === "pull" ? "フェランドの音（" + r.feNm + "）" : r.cls === "early" ? "早い（もう次の音 " + r.nxNm + "）" : (dd > 0 ? "高い" : "低い") + " " + Math.abs(dd).toFixed(1) + "半音";
+    const feOct = r.cls === "pull" && r.raw != null ? Math.round((r.raw - r.fe) / 12) : 0;
+    const word = r.cls === "ok" ? "合っている" : r.cls === "pull" ? "フェランドの音（" + r.feNm + (feOct < 0 ? "の1オクターブ下" : feOct > 0 ? "の1オクターブ上" : "") + "）" : r.cls === "early" ? "早い（もう次の音 " + r.nxNm + "）" : (dd > 0 ? "高い" : "低い") + " " + Math.abs(dd).toFixed(1) + "半音";
     const amb = nearFe(r.t, r.fe) ? ` <span class="sub">※フェランドと${r.fe % 12 === r.t % 12 ? "同じ音" : "半音となり"}</span>` : "";
     return head + `<td>${octName(Math.round(r.med))}</td><td class="${r.cls}">${word}${amb}</td></tr>`;
   }).join("");
   const title = song().title.replace(/_/g, " ") + "（" + $("bar0").value + "〜" + $("bar1").value + "小節・" + $("pct").value + "%）";
-  const answer = `<div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span>${notes.some(r => r.cls === "early") ? `　<span class="early">早く次の音へ ${notes.filter(r => r.cls === "early").length}音</span>` : ""}</div>
+  const shiftAll = shiftText(notes.filter(r => r.raw != null).map(r => [r.raw, r.t, r.fe]));
+  const answer = `${shiftAll ? `<div style="color:var(--pull);font-weight:bold;margin:6px 0">${shiftAll}</div>` : ""}<div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span>${notes.some(r => r.cls === "early") ? `　<span class="early">早く次の音へ ${notes.filter(r => r.cls === "early").length}音</span>` : ""}</div>
   <table><tr>${multi ? "<th>場面</th>" : ""}<th>小節</th><th>目標</th><th>歌った音</th><th>判定</th></tr>${rows}</table>
   <div class="sub" style="margin-top:6px">※の付いた音は、フェランドと同じ音（または半音となり）なので、「合っている」と「引っぱられ」をページでは見分けられません。録音を聞いて自分の耳で決めてください。合っている＝目標から±半音の半分以内。引っぱられ＝フェランドの音から±半音の半分以内。早い＝外れた音が、すぐ続く次の音の高さになっている（音程でなく、動くのが早い）。</div>`;
   const d = new Date(), z = x => String(x).padStart(2, "0");
@@ -598,7 +629,7 @@ function pageBar(recs) {
   if (!sung.length) return { v: "none", note: "" };
   const ok = sung.filter(r => r.cls === "ok").length;
   if (ok / sung.length >= 2 / 3) return { v: "ok", note: ok + "/" + sung.length + "音" };
-  const miss = sung.filter(r => r.cls !== "ok"), dv = medOf(miss.map(r => r.cls === "pull" ? r.fe - r.t : fold(r.med, r.t) - r.t));
+  const miss = sung.filter(r => r.cls !== "ok"), dv = medOf(miss.map(r => r.cls === "pull" ? r.fe - r.t : fold(r.raw ?? r.med, r.t) - r.t));
   const pl = miss.filter(r => r.cls === "pull").length, ea = miss.filter(r => r.cls === "early").length;
   const why = pl * 2 > miss.length ? "フェランドへ" : ea * 2 > miss.length ? "次の音へ早い" : "";
   return { v: dv > 0 ? "high" : "low", note: ok + "/" + sung.length + "音" + (why ? "・" + why : "") };
