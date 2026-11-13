@@ -72,6 +72,10 @@ details.more summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:4
     <div class="sub">押すと、その所が選ばれて「はじめる」で3回続けて歌います。1回目は手本の音（ふつう）→2回目は小さく→3回目は手本なし。速さ70%。古い音で覚えている所なので、1回目は手本をよく聞いてください。</div>
     <div class="row" id="fixBtns"></div>
   </details>
+  <details class="more" id="feBox"><summary>フェランドを少しずつ足す（つられない練習）</summary>
+    <div class="sub">いま選んでいる曲と小節で、「はじめる」で3回続けて歌います。1回目はフェランドなし→2回目は小さく→3回目はふつう。自分の線の手本の音は鳴らしません。フェランドなしで歌えた所から始めて、引っぱられたら1つ前に戻ってください（11/14: フェランドなしだと1〜8小節がほぼ楽譜どおり、ありだと平均+1.7半音高くなった）。</div>
+    <div class="row"><button id="feDrill" style="font-size:13px;padding:6px 10px;margin:3px 4px 3px 0">この曲・この小節で始める</button></div>
+  </details>
 </div>
 
 <div class="card">
@@ -197,19 +201,30 @@ const FIXES = [
   ["No.6 d「ゆー」頭 ミ♭・レ・ド", "No6_d_", 13, 15],
   ["No.15「しやれてい」の い＝ソ♯", "No15_アリア_全体_", 34, 36],
 ];
-const DRILL_VOL = ["0.8", "0.35", "0"];
-let drill = null;   // 覚え直しの最中は、何回目かで手本の音量を変える
+// 3回の練習（2026-11-14）: 1回ごとに音量を変える。me＝自分の線の手本を外していく／fe＝フェランドを足していく
+const DRILLS = {
+  me: { sel: "meVol", vals: ["0.8", "0.35", "0"], names: ["ふつう", "小さく", "なし"], word: "手本" },
+  fe: { sel: "feVol", vals: ["0", "0.4", "1"], names: ["なし", "小さく", "ふつう"], word: "フェランド" },
+};
+let drill = null, drillKind = "me";   // drill＝何回目か（null は練習なし）
+const DRILL_VOL = DRILLS.me.vals;
 FIXES.forEach(([label, head, b0, b1]) => {
   const i = SONGS.findIndex(s => s.title.startsWith(head)); if (i < 0) return;
   const bt = document.createElement("button"); bt.textContent = label; bt.style.cssText = "font-size:13px;padding:6px 10px;margin:3px 4px 3px 0";
   bt.onclick = () => {
     stop(); setMode("B"); $("song").value = i; fillAnchor(); $("bar0").value = b0; $("bar1").value = b1;
-    $("pct").value = "70"; $("rep").value = "3"; $("meVol").value = DRILL_VOL[0]; drill = 0;
+    $("pct").value = "70"; $("rep").value = "3"; drillKind = "me"; $("feVol").value = "1"; $("meVol").value = DRILL_VOL[0]; drill = 0;
     $("hint").textContent = label + "（" + b0 + "〜" + b1 + "小節）: 「はじめる」で3回。手本 ふつう→小さく→なし";
   };
   $("fixBtns").appendChild(bt);
 });
 $("song").addEventListener("change", () => { drill = null; });
+$("feDrill").onclick = () => {
+  stop(); setMode("B");
+  if (!song().fe.length) { $("hint").textContent = "この曲にはフェランドの段がありません。別の曲を選んでください"; return; }
+  $("rep").value = "3"; drillKind = "fe"; $("meVol").value = "0"; $("feVol").value = DRILLS.fe.vals[0]; drill = 0;
+  $("hint").textContent = song().title.replace(/_/g, " ") + "（" + $("bar0").value + "〜" + $("bar1").value + "小節）: 「はじめる」で3回。フェランド なし→小さく→ふつう";
+};
 $("song").onchange = fillAnchor; fillAnchor();
 function setMode(m) {
   mode = m; $("tabA").classList.toggle("on", m === "A"); $("tabB").classList.toggle("on", m === "B");
@@ -612,7 +627,8 @@ function finish() {
   lastPlay = { plan, spb, countIn, audio: null };
   if (repLeft > 0) {   // くりかえし（2026-11-14）: 同じ小節を続けて歌う。1回ごとに記録は残る。「とめる」で終わり
     repLeft--; $("repLeft").textContent = repLeft === Infinity ? "ずっと" : (repLeft ? "あと" + repLeft + "回" : "最後の回");
-    if (drill != null && drill < DRILL_VOL.length - 1) { drill++; $("meVol").value = DRILL_VOL[drill]; $("repLeft").textContent += "・手本" + ["ふつう", "小さく", "なし"][drill]; }
+    const D = DRILLS[drillKind];
+    if (drill != null && drill < D.vals.length - 1) { drill++; $(D.sel).value = D.vals[drill]; $("repLeft").textContent += "・" + D.word + D.names[drill]; }
     $("start").textContent = "とめる"; $("start").classList.add("stop");
     repTimer = setTimeout(() => { if (!running) start(); }, 1500);
   } else $("repLeft").textContent = "";
@@ -823,7 +839,7 @@ $("start").onclick = () => {
   clearTimeout(repTimer);
   if (running || repLeft > 0) { repLeft = 0; $("repLeft").textContent = ""; if (running) stop(); return; }
   const n = +$("rep").value; repLeft = mode === "B" ? (n === 0 ? Infinity : n - 1) : 0;
-  if (drill != null) { drill = 0; $("meVol").value = DRILL_VOL[0]; }   // 覚え直しは毎回「手本ふつう」から
+  if (drill != null) { drill = 0; $(DRILLS[drillKind].sel).value = DRILLS[drillKind].vals[0]; }   // 3回の練習は毎回1回目の音量から
   $("repLeft").textContent = repLeft ? (repLeft === Infinity ? "ずっと" : "あと" + repLeft + "回") : "";
   start();
 };
