@@ -68,7 +68,7 @@ details.more summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:4
 
 <div class="card tabs">
   <button id="tabA" class="on">① 自分の音をつかむ</button><button id="tabB">② 曲で歌う</button>
-  <details class="more" id="fixBox" open><summary>直した所の覚え直し（2026-11-14 楽譜に合わせて直した音）</summary>
+  <details class="more" id="fixBox" open><summary>直した所・外れやすい所の練習（3回で手本を外していく）</summary>
     <div class="sub">押すと、その所が選ばれて「はじめる」で3回続けて歌います。1回目は手本の音（ふつう）→2回目は小さく→3回目は手本なし。速さ70%。古い音で覚えている所なので、1回目は手本をよく聞いてください。</div>
     <div class="row" id="fixBtns"></div>
   </details>
@@ -200,6 +200,9 @@ const FIXES = [
   ["No.6 d「けな」シ♭・ラ♭", "No6_d_", 2, 4],
   ["No.6 d「ゆー」頭 ミ♭・レ・ド", "No6_d_", 13, 15],
   ["No.15「しやれてい」の い＝ソ♯", "No15_アリア_全体_", 34, 36],
+  // 2026-11-14 アリアを2回歌って、2回とも外れた所（直した音ではないが、同じ3回の練習で回す）
+  ["No.15 28小節 ド→ファ♯の下り（増4度）", "No15_アリア_全体_", 27, 29, "ド・シ・ラ・ソ・ファ♯と階段で下りて1回歌ってから、跳んでみてください"],
+  ["No.15 歌い出しのレ（4小節）", "No15_アリア_全体_", 4, 6, "先に「① 自分の音をつかむ」で最初のレを鳴らして合わせてから"],
 ];
 // 3回の練習（2026-11-14）: 1回ごとに音量を変える。me＝自分の線の手本を外していく／fe＝フェランドを足していく
 const DRILLS = {
@@ -208,13 +211,13 @@ const DRILLS = {
 };
 let drill = null, drillKind = "me";   // drill＝何回目か（null は練習なし）
 const DRILL_VOL = DRILLS.me.vals;
-FIXES.forEach(([label, head, b0, b1]) => {
+FIXES.forEach(([label, head, b0, b1, tip]) => {
   const i = SONGS.findIndex(s => s.title.startsWith(head)); if (i < 0) return;
   const bt = document.createElement("button"); bt.textContent = label; bt.style.cssText = "font-size:13px;padding:6px 10px;margin:3px 4px 3px 0";
   bt.onclick = () => {
     stop(); setMode("B"); $("song").value = i; fillAnchor(); $("bar0").value = b0; $("bar1").value = b1;
     $("pct").value = "70"; $("rep").value = "3"; drillKind = "me"; $("feVol").value = "1"; $("meVol").value = DRILL_VOL[0]; drill = 0;
-    $("hint").textContent = label + "（" + b0 + "〜" + b1 + "小節）: 「はじめる」で3回。手本 ふつう→小さく→なし";
+    $("hint").textContent = label + "（" + b0 + "〜" + b1 + "小節）: 「はじめる」で3回。手本 ふつう→小さく→なし" + (tip ? "。" + tip : "");
   };
   $("fixBtns").appendChild(bt);
 });
