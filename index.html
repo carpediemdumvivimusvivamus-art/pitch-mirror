@@ -214,6 +214,8 @@ const FIXES = [
   // 2026-11-14 アリアを2回歌って、2回とも外れた所（直した音ではないが、同じ3回の練習で回す）
   ["No.15 28小節 ド→ファ♯の下り（増4度）", "No15_アリア_全体_", 27, 29, "ド・シ・ラ・ソ・ファ♯と階段で下りて1回歌ってから、跳んでみてください"],
   ["No.15 歌い出しのレ（4小節）", "No15_アリア_全体_", 4, 6, "先に「① 自分の音をつかむ」で最初のレを鳴らして合わせてから"],
+  // 2026-11-15 練習記録3回とも、フェランドの旋律を1オクターブ下で歌っていた（先生の指摘「フェランドと同じ音になってしまう」と同じ所）
+  ["No.13「このぶんなら」フェランドの3度下", "No13_b_", 1, 6, "フェランドはなし。自分の線は ソラ｜シ シ ド レ（フェランドの シド｜レ レ ミ ファ の3度下）。1回目に手本とぴったり重なれば次へ", "0"],
 ];
 // 3回の練習（2026-11-14）: 1回ごとに音量を変える。me＝自分の線の手本を外していく／fe＝フェランドを足していく
 const DRILLS = {
@@ -222,12 +224,12 @@ const DRILLS = {
 };
 let drill = null, drillKind = "me";   // drill＝何回目か（null は練習なし）
 const DRILL_VOL = DRILLS.me.vals;
-FIXES.forEach(([label, head, b0, b1, tip]) => {
+FIXES.forEach(([label, head, b0, b1, tip, fe = "1"]) => {   // 6つ目＝フェランドの音量（省略時ふつう）
   const i = SONGS.findIndex(s => s.title.startsWith(head)); if (i < 0) return;
   const bt = document.createElement("button"); bt.textContent = label; bt.style.cssText = "font-size:13px;padding:6px 10px;margin:3px 4px 3px 0";
   bt.onclick = () => {
     stop(); setMode("B"); $("song").value = i; fillAnchor(); $("bar0").value = b0; $("bar1").value = b1;
-    $("pct").value = "70"; $("rep").value = "3"; drillKind = "me"; $("feVol").value = "1"; $("meVol").value = DRILL_VOL[0]; drill = 0;
+    $("pct").value = "70"; $("rep").value = "3"; drillKind = "me"; $("feVol").value = fe; $("meVol").value = DRILL_VOL[0]; drill = 0;
     $("hint").textContent = label + "（" + b0 + "〜" + b1 + "小節）: 「はじめる」で3回。手本 ふつう→小さく→なし" + (tip ? "。" + tip : "");
   };
   $("fixBtns").appendChild(bt);
