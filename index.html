@@ -92,6 +92,7 @@ details.more summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:4
       <details class="more" style="width:100%"><summary>そのほかの設定</summary>
       <label>自分の線の音 <select id="meVol"><option value="0" selected>なし（自分で歌う）</option><option value="0.35">小さく</option><option value="0.8">ふつう</option></select></label>
       <label><input type="checkbox" id="hideMe"> 歌っている間は自分の高さを隠す</label>
+      <label>遅れの補正 <select id="lat"><option value="0">なし</option><option value="0.07">0.07秒</option><option value="0.14" selected>0.14秒（11/15に測った値）</option><option value="0.21">0.21秒</option><option value="0.3">0.3秒（Bluetoothのイヤホン向け）</option></select></label>
       </details>
     </span>
     <span id="optA">
@@ -237,6 +238,9 @@ FIXES.forEach(([label, head, b0, b1, tip, fe = "1"]) => {   // 6つ目＝フェ�
   $("fixBtns").appendChild(bt);
 });
 $("song").addEventListener("change", () => { drill = null; });
+// 遅れの補正は機器ごとに違うので、この端末で選んだ値を覚えておく（読めない環境では既定の0.14秒のまま）
+try { const v = localStorage.getItem("mirrorLat"); if (v !== null && [...$("lat").options].some(o => o.value === v)) $("lat").value = v; } catch (e) {}
+$("lat").addEventListener("change", () => { try { localStorage.setItem("mirrorLat", $("lat").value); } catch (e) {} });
 $("feDrill").onclick = () => {
   stop(); setMode("B");
   if (!song().fe.length) { $("hint").textContent = "この曲にはフェランドの段がありません。別の曲を選んでください"; return; }
@@ -390,7 +394,8 @@ function buildPlan() {
   const W = (s.wo || []).filter(n => n[0] >= a && n[0] < b).map(mv).filter(n => n[0] >= 0);   // 女声2人（鳴らす・描くだけ。画面の高さの幅には入れない）
   const end = Math.max(...M.concat(F, D, W).map(n => n[0] + n[1]));
   const all = M.concat(F, D).map(n => n[2]);
-  return { me: M, fe: F, da: D, wo: W, end, bl, lo: Math.min(...all) - 2, hi: Math.max(...all) + 2 };
+  const lo = Math.min(...all) - 2, hi = Math.max(...all) + 2;
+  return { me: M, fe: F, da: D, wo: W, end, bl, lo, hi, lo0: lo, hi0: hi };   // lo0/hi0＝広げる前の範囲（広げるのは1オクターブまで）
 }
 function startB() {
   plan = buildPlan(); if (!plan) return false;
@@ -417,7 +422,8 @@ function drawRoll(beat) {
   const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
   // 歌詞のある曲は見える幅を4拍に（2026-11-15 本人「字が重なって気持ち悪い」→案1位。8拍だと70%で8分音符が約20pxしかなく「じょう」が入らない）
   const hasLy = plan.me.some(n => n[5]) && $("lyMode").value !== "nm";
-  const L = 44, span = hasLy ? 4 : 8, px = (w - L) / span, x0 = L + (w - L) * 0.3, X = b => x0 + (b - beat) * px;
+  // 2026-11-15 夜: 4拍固定だとPC（幅約900px）で1拍219pxに広がり、先が1拍ほどしか見えなかった。画面の幅から決める（1拍70px以上・4〜8拍）
+  const L = 44, span = hasLy ? Math.max(4, Math.min(8, Math.floor((w - L) / 70))) : 8, px = (w - L) / span, x0 = L + (w - L) * 0.3, X = b => x0 + (b - beat) * px;
   const rows = plan.hi - plan.lo, Y = m => h - 10 - (m - plan.lo) / rows * (h - 20);
   g.font = "12px sans-serif"; g.textBaseline = "middle";
   for (let m = plan.lo; m <= plan.hi; m++) {
@@ -454,7 +460,10 @@ function drawRoll(beat) {
   g.strokeStyle = css("--fg"); g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0, h); g.stroke();
 }
 function loopB() {
-  const beat = (ctx.currentTime - t0) / spb - countIn; let mf = smoothed(detect());
+  // 遅れの補正（2026-11-15 夜・本人A案）: 録音2本で、声が次の音へ移るのが楽譜より0.14秒遅れていた（速さが違っても同じ＝イヤホンとマイクの遅れ）。
+  // 線の位置・目標・判定・記録をその分うしろへずらす。試験モードは遅れがないので0
+  const lag = TEST ? 0 : +$("lat").value;
+  const beat = (ctx.currentTime - t0 - lag) / spb - countIn; let mf = smoothed(detect());
   const target = beat >= 0 ? at(plan.me, beat) : null, fe = beat >= 0 ? at(plan.fe, beat) : null;
   // 「自分の高さを隠す」（2026-11-09）: 画面に頼らず歌う回。検出と記録はそのまま続け、表示だけ止める
   if ($("hideMe").checked) { showLive(null, null, null); $("diff").textContent = "隠しています"; $("itv").textContent = "—"; }
@@ -464,6 +473,10 @@ function loopB() {
     // 描く高さ（2026-11-14）: 引っぱられの点も、フェランドの高さに移さず歌った高さのまま描く（色だけピンク）。
     // 移して描くと、同じ声が1オクターブ上にも点を落とし、線が2本に割れて見えた（本人のスクショ・No.1 28〜29小節）
     const drawY = cls === "pull" ? fold(raw, target[2]) : mf;
+    // 描ける範囲の外の声（2026-11-15 夜・本人のスクショ）: フェランドの線の1オクターブ下を歌うと、点が全部下の端に張りついて
+    // 「表示がずれている」ように見えた。範囲を最大1オクターブまで広げ、歌った高さのまま描く（一度広げたら、その回は戻さない）
+    if (drawY < plan.lo && drawY >= plan.lo0 - 12) plan.lo = Math.floor(drawY) - 1;
+    if (drawY > plan.hi && drawY <= plan.hi0 + 12) plan.hi = Math.ceil(drawY) + 1;
     trace.push([beat, Math.max(plan.lo, Math.min(plan.hi, drawY)), cls, target, mf, raw]);
   }
   showShift(beat);
@@ -663,7 +676,7 @@ function finish() {
   const d = new Date(), z = x => String(x).padStart(2, "0");
   const take = { v: 1, id: `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`,
     date: d.toISOString(), d: d.toLocaleString("ja-JP"), song: song().title, title, bar0: +$("bar0").value, bar1: +$("bar1").value, pct: +$("pct").value,
-    feVol: +$("feVol").value, daVol: +$("daVol").value, woVol: +$("woVol").value, meVol: +$("meVol").value, sens: +$("sens").value, test: !!TEST, ok: pct("ok"), pull: pct("pull"), notes, saved: false,
+    feVol: +$("feVol").value, daVol: +$("daVol").value, woVol: +$("woVol").value, lat: TEST ? 0 : +$("lat").value, meVol: +$("meVol").value, sens: +$("sens").value, test: !!TEST, ok: pct("ok"), pull: pct("pull"), notes, saved: false,
     spb: r2(spb * 1000) / 1000, countIn, audio: null, hideMe: $("hideMe").checked, self: null };
   const takes = loadTakes(); takes.unshift(take); saveTakes(takes); showHist();
   showGuess(take, notes, title, answer);
