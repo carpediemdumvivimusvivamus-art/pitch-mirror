@@ -390,6 +390,9 @@ function buildPlan() {
   if (!me.length) { alert("その小節には、あなたの音がありません。"); return null; }
   const shift = Math.floor((me[0][0]) / bl) * bl, mv = n => [n[0] - shift, n[1], n[2], n[3], n[0], n[4]];   // 6つ目＝歌詞（ある曲だけ・2026-11-15）
   const M = me.map(mv), F = fe.map(mv).filter(n => n[0] >= 0);
+  // 上がる・下がるの印（2026-11-20 本人「ドシドになってる？あがってる？」）: 自分の前の音（範囲の外も含む）より高ければ↑、低ければ↓。
+  // 帯の音名と歌詞の「ー」（同じ母音のまま音だけ変わる所）に付ける。n[6]
+  M.forEach((n, i) => { const k = s.me.indexOf(me[i]), p = k > 0 ? s.me[k - 1] : null; n[6] = !p || p[2] === n[2] ? "" : p[2] < n[2] ? "↑" : "↓"; });
   const D = (s.da || []).filter(n => n[0] >= a && n[0] < b).map(mv).filter(n => n[0] >= 0);   // もう一人の男声（鳴らす・描くだけ）
   const W = (s.wo || []).filter(n => n[0] >= a && n[0] < b).map(mv).filter(n => n[0] >= 0);   // 女声2人（鳴らす・描くだけ。画面の高さの幅には入れない）
   const end = Math.max(...M.concat(F, D, W).map(n => n[0] + n[1]));
@@ -436,7 +439,7 @@ function drawRoll(beat) {
     const xa = X(n[0]), xb = X(n[0] + n[1]); if (xb < L || xa > w) return;
     g.fillStyle = css(col); g.globalAlpha = col === "--me" ? 0.85 : col === "--da" || col === "--wo" ? 0.45 : 0.6; g.fillRect(Math.max(L, xa), Y(n[2]) - bh / 2, xb - Math.max(L, xa) - 2, bh); g.globalAlpha = 1;
     // 帯の中は音名だけ（歌詞は下の帯に一本化）。「歌詞だけ」のときは自分の帯に字を書かない。帯からはみ出す字は書かない
-    const tx = col === "--me" && hasLy && $("lyMode").value === "ly" ? "" : n[3];
+    const tx = col === "--me" && hasLy && $("lyMode").value === "ly" ? "" : n[3] + (col === "--me" ? n[6] || "" : "");
     if (xa > L && tx && g.measureText(tx).width + 4 <= xb - xa) { g.fillStyle = "#fff"; g.fillText(tx, xa + 3, Y(n[2])); }
     if (col === "--me") { const f = at(plan.fe, n[0] + 0.01); if (f && nearFe(n[2], f[2])) {   // 判定が当てにならない音に点線の枠
       g.save(); g.setLineDash([4, 3]); g.lineWidth = 2; g.strokeStyle = css("--pull"); g.strokeRect(Math.max(L, xa) - 1, Y(n[2]) - bh / 2 - 3, xb - Math.max(L, xa), bh + 6); g.restore(); } }
@@ -449,9 +452,10 @@ function drawRoll(beat) {
       if (!n[5]) continue; const xa = X(n[0]);
       const now = beat >= n[0] && beat < n[0] + n[1];
       g.font = now ? "bold 20px sans-serif" : "16px sans-serif";
-      const x = Math.max(xa, right + 6), tw = g.measureText(n[5]).width; right = x + tw;
+      const ly = n[5] === "ー" && n[6] ? "ー" + n[6] : n[5];   // 「ー」で音が変わる所は向きを出す（2026-11-20）
+      const x = Math.max(xa, right + 6), tw = g.measureText(ly).width; right = x + tw;
       if (x + tw < L || x > w) continue;
-      g.fillStyle = css(now ? "--me" : "--fg"); g.fillText(n[5], Math.max(L, x), h - 13);
+      g.fillStyle = css(now ? "--me" : "--fg"); g.fillText(ly, Math.max(L, x), h - 13);
     }
     g.font = "12px sans-serif";
   }
