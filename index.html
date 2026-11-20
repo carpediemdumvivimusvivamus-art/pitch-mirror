@@ -51,7 +51,7 @@ details.more summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:4
   #live b{font-size:20px}
   #live div{padding:3px}
   #needle{height:20px;margin-top:4px}
-  canvas{height:200px}
+  canvas{height:320px}   /* 2026-11-21 本人「歌う所の表示をもう少し大きく」200→320px */
   .legend span{font-size:11px;margin-right:8px}
   #songLbl{display:flex;align-items:center;gap:4px;width:100%;margin:0}
   #song{flex:1;min-width:0;width:100%;font-size:14px}
@@ -219,6 +219,8 @@ const FIXES = [
   ["No.15 歌い出しのレ（4小節）", "No15_アリア_全体_", 4, 6, "先に「① 自分の音をつかむ」で最初のレを鳴らして合わせてから"],
   // 2026-11-15 練習記録3回とも、フェランドの旋律を1オクターブ下で歌っていた（先生の指摘「フェランドと同じ音になってしまう」と同じ所）
   ["No.13「このぶんなら」フェランドの3度下", "No13_b_", 1, 6, "フェランドはなし。自分の線は ソラ｜シ シ ド レ（フェランドの シド｜レ レ ミ ファ の3度下）。1回目に手本とぴったり重なれば次へ", "0"],
+  // 2026-11-21 練習記録14回で、ほかの区間は75〜85%まで上がったのに13〜18小節は最高でも50%。16小節は毎回やや低め（−0.6〜−0.8半音）。フェランドを小さく足すと当たりが68%→45%に下がった
+  ["フィナーレ c「夢か」の終わり","Fin_c_", 13, 18, "フェランドは小さく。16小節は低めになりやすいので、少し上を狙って", "0.4"],
 ];
 // 3回の練習（2026-11-14）: 1回ごとに音量を変える。me＝自分の線の手本を外していく／fe＝フェランドを足していく
 const DRILLS = {
@@ -424,14 +426,15 @@ function drawRoll(beat) {
   const hasLy = plan.me.some(n => n[5]) && $("lyMode").value !== "nm";
   // 2026-11-15 夜: 4拍固定だとPC（幅約900px）で1拍219pxに広がり、先が1拍ほどしか見えなかった。画面の幅から決める（1拍70px以上・4〜8拍）
   const L = 44, span = hasLy ? Math.max(4, Math.min(8, Math.floor((w - L) / 70))) : 8, px = (w - L) / span, x0 = L + (w - L) * 0.3, X = b => x0 + (b - beat) * px;
-  const rows = plan.hi - plan.lo, Y = m => h - 10 - (m - plan.lo) / rows * (h - 20);
+  // 2026-11-21 本人「下の音が表示されない」: 歌詞の帯（下26px）が一番下の2〜3段の音にかぶっていた。歌詞のある曲は帯の分だけ下をあける
+  const bot = hasLy ? 32 : 10, rows = plan.hi - plan.lo, Y = m => h - bot - (m - plan.lo) / rows * (h - bot - 10);
   g.font = "12px sans-serif"; g.textBaseline = "middle";
   for (let m = plan.lo; m <= plan.hi; m++) {
     const natural = [0, 2, 4, 5, 7, 9, 11].includes(((m % 12) + 12) % 12);
     g.strokeStyle = css("--line"); g.globalAlpha = natural ? 1 : 0.4; g.beginPath(); g.moveTo(L, Y(m)); g.lineTo(w, Y(m)); g.stroke(); g.globalAlpha = 1;
     if (natural || m === plan.lo) { g.fillStyle = css("--sub"); g.fillText(octName(m), 4, Y(m)); }
   }
-  const bh = Math.max(6, (h - 20) / rows * 0.8);
+  const bh = Math.max(6, (h - bot - 10) / rows * 0.8);
   [[(plan.wo || []).filter(n => n[2] <= plan.hi), "--wo"], [plan.da || [], "--da"], [plan.fe, "--fe"], [plan.me, "--me"]].forEach(([list, col]) => list.forEach(n => {
     const xa = X(n[0]), xb = X(n[0] + n[1]); if (xb < L || xa > w) return;
     g.fillStyle = css(col); g.globalAlpha = col === "--me" ? 0.85 : col === "--da" || col === "--wo" ? 0.45 : 0.6; g.fillRect(Math.max(L, xa), Y(n[2]) - bh / 2, xb - Math.max(L, xa) - 2, bh); g.globalAlpha = 1;
