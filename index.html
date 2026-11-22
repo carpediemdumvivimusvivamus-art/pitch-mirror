@@ -72,6 +72,10 @@ details.more summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:4
     <div class="sub">押すと、その所が選ばれて「はじめる」で3回続けて歌います。1回目は手本の音（ふつう）→2回目は小さく→3回目は手本なし。速さ70%。古い音で覚えている所なので、1回目は手本をよく聞いてください。</div>
     <div class="row" id="fixBtns"></div>
   </details>
+  <details class="more" id="entryBox"><summary>入りの練習（直前の音をもらって入る）</summary>
+    <div class="sub">本番では自分の音は誰も鳴らしてくれません。鳴っているのは直前の誰かの音です。押すと、入りの1小節前（もらう音が鳴る所）から入った小節の終わりまでを「はじめる」で3回歌います。手本の自分の音は ふつう→小さく→なし。数え始めに自分の最初の音は鳴らしません。「←」の右が、もらう音と、そこから自分の音への関係です。一覧: 03_REPORTS/20261122_コジ_入りの音_もらい先一覧.md</div>
+    <div class="row" id="entryBtns"></div>
+  </details>
   <details class="more" id="feBox"><summary>フェランドを少しずつ足す（つられない練習）</summary>
     <div class="sub">いま選んでいる曲と小節で、「はじめる」で3回続けて歌います。1回目はフェランドなし→2回目は小さく→3回目はふつう。自分の線の手本の音は鳴らしません。フェランドなしで歌えた所から始めて、引っぱられたら1つ前に戻ってください（11/14: フェランドなしだと1〜8小節がほぼ楽譜どおり、ありだと平均+1.7半音高くなった）。</div>
     <div class="row"><button id="feDrill" style="font-size:13px;padding:6px 10px;margin:3px 4px 3px 0">この曲・この小節で始める</button></div>
@@ -237,23 +241,73 @@ FIXES.forEach(([label, head, b0, b1, tip, fe = "1", kind = "me"]) => {   // 6つ
   const i = SONGS.findIndex(s => s.title.startsWith(head)); if (i < 0) return;
   const bt = document.createElement("button"); bt.textContent = label; bt.style.cssText = "font-size:13px;padding:6px 10px;margin:3px 4px 3px 0";
   bt.onclick = () => {
-    stop(); setMode("B"); $("song").value = i; fillAnchor(); $("bar0").value = b0; $("bar1").value = b1;
+    stop(); setMode("B"); $("song").value = i; fillAnchor(); fillEntries(); entry = null; $("bar0").value = b0; $("bar1").value = b1;
     $("pct").value = "70"; $("rep").value = "3"; drillKind = kind; $("feVol").value = kind === "fe" ? DRILLS.fe.vals[0] : fe; $("meVol").value = DRILL_VOL[0]; drill = 0;
     $("hint").textContent = label + "（" + b0 + "〜" + b1 + "小節）: 「はじめる」で3回。" + (kind === "fe" ? "フェランド なし→小さく→ふつう" : "手本 ふつう→小さく→なし") + (tip ? "。" + tip : "");
   };
   $("fixBtns").appendChild(bt);
 });
-$("song").addEventListener("change", () => { drill = null; });
+$("song").addEventListener("change", () => { drill = null; entry = null; fillEntries(); });
+// 入りの練習（2026-11-22・本人「入りの音そのものが取れていない」）: 休み1拍以上のあとの最初の音ごとに、
+// 直前に鳴る他の声の音（もらう音）を探し、その1小節前から歌う。数え始めに自分の最初の音は鳴らさない（startB）
+let entry = null;   // { beat: 曲の頭からの拍, t: 目標の高さ, label }
+const ENTRY_TIPS = {   // データに相手の段が無いが、楽譜と先生の処方で分かっている「もらう音」（2026-11-22）
+  "Fin_b_": { 1: "アルフォンゾの「お見えです」の「す」と同じソ（ページでは鳴りません）" },
+  "No6_c_": { 1: "フェランドの「どんなもんだ」の頭と同じラ（ページでは鳴りません）" },
+  "No6_通し_": { 40: "フェランドの「どんなもんだ」の頭と同じラ（ページでは鳴りません）" },
+};
+const IVW = { 0: "同じ音", 12: "1オクターブ下", 3: "短3度下", 4: "長3度下", "-3": "短3度上", "-4": "長3度上", 2: "全音下", "-2": "全音上", 1: "半音下", "-1": "半音上", 5: "4度下", "-5": "4度上", 7: "5度下", "-7": "5度上", 8: "短6度下", 9: "長6度下", 15: "1オクターブ＋短3度下", 16: "1オクターブ＋長3度下", 6: "増4度下", "-6": "増4度上" };
+const ivWord = (src, own) => { const d = src - own; return IVW[d] || (Math.abs(d) + "半音" + (d > 0 ? "下" : "上")); };
+const VOICE_NM = { fe: "フェ", da: "アル", wo: "女声" };
+function entriesOf(s) {
+  const out = []; let prevEnd = null;
+  s.me.forEach(n => {
+    const gap = prevEnd == null ? null : n[0] - prevEnd; prevEnd = n[0] + n[1];
+    if (gap != null && gap < 1) return;
+    let src = null;
+    ["fe", "da", "wo"].forEach((v, rank) => (s[v] || []).forEach(o => {
+      if (o[0] < n[0] - 1e-6 && n[0] - o[0] <= 8 && (!src || o[0] > src.o[0] + 1e-6 || (Math.abs(o[0] - src.o[0]) < 1e-6 && rank < src.rank))) src = { v, o, rank };
+    }));
+    const bar = Math.floor(n[0] / s.beats) + 1;
+    const tipKey = Object.keys(ENTRY_TIPS).find(k => s.title.startsWith(k)), tip = tipKey && ENTRY_TIPS[tipKey][bar];
+    out.push({ beat: n[0], t: n[2], nm: n[3] + (Math.floor(n[2] / 12) - 1), ly: n[4] || "", bar, src, tip });
+  });
+  return out;
+}
+function fillEntries() {
+  const s = song(), box = $("entryBtns"); box.innerHTML = "";
+  const lastBar = Math.ceil(Math.max(...s.me.map(n => n[0] + n[1])) / s.beats);
+  entriesOf(s).forEach(e => {
+    const from = e.tip ? "★" + e.tip.split("（")[0] : e.src ? VOICE_NM[e.src.v] + " " + e.src.o[3] + (Math.floor(e.src.o[2] / 12) - 1) + "（" + ivWord(e.src.o[2], e.t) + "）" : "ピアノ（ページでは鳴りません）";
+    const bt = document.createElement("button");
+    bt.textContent = e.bar + "小節" + (e.ly ? "「" + e.ly + "」" : "") + " " + e.nm + " ← " + from;
+    bt.style.cssText = "font-size:13px;padding:6px 10px;margin:3px 4px 3px 0;text-align:left";
+    bt.onclick = () => {
+      stop(); setMode("B");
+      const b0 = Math.max(1, Math.floor(Math.min(e.src ? e.src.o[0] : e.beat, e.beat - s.beats) / s.beats) + 1);
+      const b1 = Math.min(lastBar, e.beat % s.beats < s.beats - 1 ? e.bar : e.bar + 1);
+      $("bar0").value = b0; $("bar1").value = b1; $("pct").value = "70"; $("rep").value = "3";
+      drillKind = "me"; $("meVol").value = DRILLS.me.vals[0]; drill = 0;
+      $("feVol").value = "1"; if (e.src && e.src.v === "da") $("daVol").value = "1"; if (e.src && e.src.v === "wo") $("woVol").value = "1";
+      entry = { beat: e.beat, t: e.t, label: bt.textContent };
+      $("hint").textContent = "入りの練習 " + bt.textContent + "（" + b0 + "〜" + b1 + "小節）: 「はじめる」で3回。休みのあいだに、もらう音から自分の音を頭の中で鳴らしてから入る。手本 ふつう→小さく→なし"
+        + (e.src || e.tip ? "" : "。ピアノは鳴らないので、先生の録音で前の和音を聞いてから試すとよい");
+    };
+    box.appendChild(bt);
+  });
+  if (!box.children.length) box.textContent = "この曲には休みのあとの入りがありません";
+}
 // 遅れの補正は機器ごとに違うので、この端末で選んだ値を覚えておく（読めない環境では既定の0.14秒のまま）
 try { const v = localStorage.getItem("mirrorLat"); if (v !== null && [...$("lat").options].some(o => o.value === v)) $("lat").value = v; } catch (e) {}
 $("lat").addEventListener("change", () => { try { localStorage.setItem("mirrorLat", $("lat").value); } catch (e) {} });
 $("feDrill").onclick = () => {
-  stop(); setMode("B");
+  stop(); setMode("B"); entry = null;
   if (!song().fe.length) { $("hint").textContent = "この曲にはフェランドの段がありません。別の曲を選んでください"; return; }
   $("rep").value = "3"; drillKind = "fe"; $("meVol").value = "0"; $("feVol").value = DRILLS.fe.vals[0]; drill = 0;
   $("hint").textContent = song().title.replace(/_/g, " ") + "（" + $("bar0").value + "〜" + $("bar1").value + "小節）: 「はじめる」で3回。フェランド なし→小さく→ふつう";
 };
-$("song").onchange = fillAnchor; fillAnchor();
+$("song").onchange = fillAnchor; fillAnchor(); fillEntries();
+["bar0", "bar1"].forEach(id => $(id).addEventListener("change", () => { entry = null; }));
 function setMode(m) {
   mode = m; $("tabA").classList.toggle("on", m === "A"); $("tabB").classList.toggle("on", m === "B");
   $("optA").style.display = m === "A" ? "" : "none"; $("optB").style.display = m === "B" ? "" : "none";
@@ -394,14 +448,15 @@ function buildPlan() {
   const s = song(), bl = s.beats, a = (+$("bar0").value - 1) * bl, b = +$("bar1").value * bl;
   const me = s.me.filter(n => n[0] >= a && n[0] < b), fe = s.fe.filter(n => n[0] >= a && n[0] < b);
   if (!me.length) { alert("その小節には、あなたの音がありません。"); return null; }
-  const shift = Math.floor((me[0][0]) / bl) * bl, mv = n => [n[0] - shift, n[1], n[2], n[3], n[0], n[4]];   // 6つ目＝歌詞（ある曲だけ・2026-11-15）
+  // 入りの練習（2026-11-22）は選んだ小節の頭から（自分の音が無い前の小節に、もらう音が鳴っているため）。ふだんは自分の最初の音の小節から
+  const shift = entry ? a : Math.floor((me[0][0]) / bl) * bl, mv = n => [n[0] - shift, n[1], n[2], n[3], n[0], n[4]];   // 6つ目＝歌詞（ある曲だけ・2026-11-15）
   const M = me.map(mv), F = fe.map(mv).filter(n => n[0] >= 0);
   const D = (s.da || []).filter(n => n[0] >= a && n[0] < b).map(mv).filter(n => n[0] >= 0);   // もう一人の男声（鳴らす・描くだけ）
   const W = (s.wo || []).filter(n => n[0] >= a && n[0] < b).map(mv).filter(n => n[0] >= 0);   // 女声2人（鳴らす・描くだけ。画面の高さの幅には入れない）
   const end = Math.max(...M.concat(F, D, W).map(n => n[0] + n[1]));
   const all = M.concat(F, D).map(n => n[2]);
   const lo = Math.min(...all) - 2, hi = Math.max(...all) + 2;
-  return { me: M, fe: F, da: D, wo: W, end, bl, lo, hi, lo0: lo, hi0: hi };   // lo0/hi0＝広げる前の範囲（広げるのは1オクターブまで）
+  return { me: M, fe: F, da: D, wo: W, end, bl, lo, hi, lo0: lo, hi0: hi, shift };   // lo0/hi0＝広げる前の範囲（広げるのは1オクターブまで）
 }
 function startB() {
   plan = buildPlan(); if (!plan) return false;
@@ -410,7 +465,7 @@ function startB() {
   for (let i = 0; i < countIn; i++) click(t0 + i * spb, i === 0);
   const T = n => t0 + (countIn + n[0]) * spb, fv = +$("feVol").value, mv = +$("meVol").value;
   // 最初の音を鳴らしてからカウントに入る代わりに、カウント中に自分の最初の音を小さく伸ばす
-  holdNodes.push(...voice(plan.me[0][2], t0, countIn * spb * 0.9, 0.6, 0.3));
+  if (!entry) holdNodes.push(...voice(plan.me[0][2], t0, countIn * spb * 0.9, 0.6, 0.3));   // 入りの練習（2026-11-22）では鳴らさない
   if (fv > 0) plan.fe.forEach(n => holdNodes.push(...voice(n[2], T(n), n[1] * spb * 0.97, fv, 0.3)));
   const dv = +$("daVol").value;
   if (dv > 0) plan.da.forEach(n => holdNodes.push(...voice(n[2], T(n), n[1] * spb * 0.97, dv, 0.2)));
@@ -676,8 +731,17 @@ function finish() {
     return head + `<td>${octName(Math.round(r.med))}</td><td class="${r.cls}">${word}${amb}</td></tr>`;
   }).join("");
   const title = song().title.replace(/_/g, " ") + "（" + $("bar0").value + "〜" + $("bar1").value + "小節・" + $("pct").value + "%）";
+  const er = entry ? notes.find(r => Math.abs(r.at + plan.shift - entry.beat) < 0.01 && r.t === entry.t) : null;
+  const entryLine = !entry ? "" : !er || er.cls === "none" ? `<div style="font-size:16px;margin:6px 0"><b>入りの音</b>: 声が拾えませんでした</div>` : (() => {
+    const head = []; for (let i = 0; i + 1 < er.pts.length; i += 2) if (er.pts[i] < 200) head.push(er.pts[i + 1]);
+    const hm = head.length ? medOf(head) / 100 : null, dd = er.med - er.t;
+    const w = Math.abs(dd) < 0.5 ? "合っている" : (dd > 0 ? "高い " : "低い ") + Math.abs(dd).toFixed(1) + "半音";
+    return `<div style="font-size:16px;margin:6px 0"><b>入りの音 ${er.nm}</b>: <span class="${Math.abs(dd) < 0.5 ? "ok" : "off"}">${w}</span>`
+      + (hm == null ? "" : `　出だし0.2秒は ${hm >= 0 ? "+" : "−"}${Math.abs(hm).toFixed(1)}半音` + (Math.abs(hm) >= 0.5 ? (hm > 0 ? "（上から入っている）" : "（下から入っている）") : "（最初からその高さ）"))
+      + `<span class="sub">　手本 ${({ "0.8": "ふつう", "0.35": "小さく", "0": "なし" })[$("meVol").value] || ""}</span></div>`;
+  })();
   const shiftAll = shiftText(notes.filter(r => r.raw != null).map(r => [r.raw, r.t, r.fe]));
-  const answer = `${shiftAll ? `<div style="color:var(--pull);font-weight:bold;margin:6px 0">${shiftAll}</div>` : ""}<div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span>${notes.some(r => r.cls === "early") ? `　<span class="early">早く次の音へ ${notes.filter(r => r.cls === "early").length}音</span>` : ""}</div>
+  const answer = entryLine + `${shiftAll ? `<div style="color:var(--pull);font-weight:bold;margin:6px 0">${shiftAll}</div>` : ""}<div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span>${notes.some(r => r.cls === "early") ? `　<span class="early">早く次の音へ ${notes.filter(r => r.cls === "early").length}音</span>` : ""}</div>
   <table><tr>${multi ? "<th>場面</th>" : ""}<th>小節</th><th>目標</th><th>歌った音</th><th>判定</th></tr>${rows}</table>
   <div class="sub" style="margin-top:6px">※の付いた音は、フェランドと同じ音（または半音となり）なので、「合っている」と「引っぱられ」をページでは見分けられません。録音を聞いて自分の耳で決めてください。合っている＝目標から±半音の半分以内。引っぱられ＝フェランドの音から±半音の半分以内。早い＝外れた音が、すぐ続く次の音の高さになっている（音程でなく、動くのが早い）。</div>`;
   const d = new Date(), z = x => String(x).padStart(2, "0");
