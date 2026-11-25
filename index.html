@@ -78,7 +78,7 @@ details.more summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:4
     <div class="row" id="entryBtns"></div>
   </details>
   <details class="more" id="feBox"><summary>フェランドを少しずつ足す（つられない練習）</summary>
-    <div class="sub">いま選んでいる曲と小節で、「はじめる」で3回続けて歌います。1回目はフェランドなし→2回目は小さく→3回目はふつう。自分の線の手本の音は鳴らしません。フェランドなしで歌えた所から始めて、引っぱられたら1つ前に戻ってください（11/14: フェランドなしだと1〜8小節がほぼ楽譜どおり、ありだと平均+1.7半音高くなった）。</div>
+    <div class="sub">いま選んでいる曲と小節で、「はじめる」で3回続けて歌います。1回目はフェランドなし→2回目は小さく→3回目はふつう。自分の線の手本はふつうのまま鳴らします（2026-11-25: フェランドを鳴らすときは手本も同じ大きさで鳴らす）。フェランドなしで歌えた所から始めて、引っぱられたら1つ前に戻ってください（11/14: フェランドなしだと1〜8小節がほぼ楽譜どおり、ありだと平均+1.7半音高くなった）。</div>
     <div class="row"><button id="feDrill" style="font-size:13px;padding:6px 10px;margin:3px 4px 3px 0">この曲・この小節で始める</button></div>
   </details>
 </div>
@@ -95,7 +95,8 @@ details.more summary{cursor:pointer;color:var(--sub);font-size:13px;margin-top:4
       <label id="lyBox" style="display:none">表示 <select id="lyMode"><option value="both" selected>歌詞と音名</option><option value="ly">歌詞だけ</option><option value="nm">音名だけ</option></select></label>
       <label id="woBox" style="display:none">女声2人 <select id="woVol"><option value="1">ふつう</option><option value="0.4" selected>小さく</option><option value="0">なし</option></select></label>
       <details class="more" style="width:100%"><summary>そのほかの設定</summary>
-      <label>自分の線の音 <select id="meVol"><option value="0" selected>なし（自分で歌う）</option><option value="0.35">小さく</option><option value="0.8">ふつう</option></select></label>
+      <label>自分の線の音 <select id="meVol"><option value="0" selected>なし（自分で歌う）</option><option value="0.4">小さく</option><option value="1">ふつう</option></select></label>
+      <label><input type="checkbox" id="feSolo"> 仕上げ: 手本なしでフェランドと歌う（ふだんは、フェランドを鳴らすと手本も同じ大きさで鳴ります）</label>
       <label><input type="checkbox" id="hideMe"> 歌っている間は自分の高さを隠す</label>
       <label>遅れの補正 <select id="lat"><option value="0">なし</option><option value="0.07">0.07秒</option><option value="0.14" selected>0.14秒（11/15に測った値）</option><option value="0.21">0.21秒</option><option value="0.3">0.3秒（Bluetoothのイヤホン向け）</option></select></label>
       </details>
@@ -243,7 +244,7 @@ const FIXES = [
 ];
 // 3回の練習（2026-11-14）: 1回ごとに音量を変える。me＝自分の線の手本を外していく／fe＝フェランドを足していく
 const DRILLS = {
-  me: { sel: "meVol", vals: ["0.8", "0.35", "0"], names: ["ふつう", "小さく", "なし"], word: "手本" },
+  me: { sel: "meVol", vals: ["1", "0.4", "0"], names: ["ふつう", "小さく", "なし"], word: "手本" },   // 2026-11-25 フェランドと同じ目盛りに（旧 0.8・0.35）
   fe: { sel: "feVol", vals: ["0", "0.4", "1"], names: ["なし", "小さく", "ふつう"], word: "フェランド" },
 };
 let drill = null, drillKind = "me";   // drill＝何回目か（null は練習なし）
@@ -301,7 +302,7 @@ function fillEntries() {
       drillKind = "me"; $("meVol").value = DRILLS.me.vals[0]; drill = 0;
       $("feVol").value = "1"; if (e.src && e.src.v === "da") $("daVol").value = "1"; if (e.src && e.src.v === "wo") $("woVol").value = "1";
       entry = { beat: e.beat, t: e.t, label: bt.textContent };
-      $("hint").textContent = "入りの練習 " + bt.textContent + "（" + b0 + "〜" + b1 + "小節）: 「はじめる」で3回。休みのあいだに、もらう音から自分の音を頭の中で鳴らしてから入る。手本 ふつう→小さく→なし"
+      $("hint").textContent = "入りの練習 " + bt.textContent + "（" + b0 + "〜" + b1 + "小節）: 「はじめる」で3回。休みのあいだに、もらう音から自分の音を頭の中で鳴らしてから入る。手本 ふつう→小さく→なし（フェランドも手本と同じだけ小さくする。入りより前のもらう音は鳴らす）"
         + (e.src || e.tip ? "" : "。ピアノは鳴らないので、先生の録音で前の和音を聞いてから試すとよい");
     };
     box.appendChild(bt);
@@ -314,7 +315,7 @@ $("lat").addEventListener("change", () => { try { localStorage.setItem("mirrorLa
 $("feDrill").onclick = () => {
   stop(); setMode("B"); entry = null;
   if (!song().fe.length) { $("hint").textContent = "この曲にはフェランドの段がありません。別の曲を選んでください"; return; }
-  $("rep").value = "3"; drillKind = "fe"; $("meVol").value = "0"; $("feVol").value = DRILLS.fe.vals[0]; drill = 0;
+  $("rep").value = "3"; drillKind = "fe"; $("meVol").value = DRILLS.me.vals[0]; $("feVol").value = DRILLS.fe.vals[0]; drill = 0;
   $("hint").textContent = song().title.replace(/_/g, " ") + "（" + $("bar0").value + "〜" + $("bar1").value + "小節）: 「はじめる」で3回。フェランド なし→小さく→ふつう";
 };
 $("song").onchange = fillAnchor; fillAnchor(); fillEntries();
@@ -469,15 +470,26 @@ function buildPlan() {
   const lo = Math.min(...all) - 2, hi = Math.max(...all) + 2;
   return { me: M, fe: F, da: D, wo: W, end, bl, lo, hi, lo0: lo, hi0: hi, shift };   // lo0/hi0＝広げる前の範囲（広げるのは1オクターブまで）
 }
+// 実際に鳴らす大きさ（2026-11-25 本人「フェランドを入れるなら、同じふつうの大きさでグリエルモも」）:
+// フェランドは自分の手本より大きくしない。ふだんは手本をフェランドと同じ大きさまで上げ、
+// 手本を外していく3回（覚え直し・入りの練習）ではフェランドも手本と一緒に小さくする。「仕上げ」にチェックしたときだけ選んだまま
+function vols() {
+  const fvSet = +$("feVol").value, mvSet = +$("meVol").value;
+  if ($("feSolo").checked || fvSet === 0) return { fv: fvSet, mv: mvSet, fvSet };
+  if (drill != null && drillKind === "me") return { fv: Math.min(fvSet, mvSet), mv: mvSet, fvSet };
+  return { fv: fvSet, mv: Math.max(mvSet, fvSet), fvSet };
+}
 function startB() {
   plan = buildPlan(); if (!plan) return false;
   const s = song(); spb = 60 / (s.tempo * +$("pct").value / 100); countIn = plan.bl;
   trace = []; t0 = ctx.currentTime + 0.3;
   for (let i = 0; i < countIn; i++) click(t0 + i * spb, i === 0);
-  const T = n => t0 + (countIn + n[0]) * spb, fv = +$("feVol").value, mv = +$("meVol").value;
+  const T = n => t0 + (countIn + n[0]) * spb, { fv, mv, fvSet } = vols();
   // 最初の音を鳴らしてからカウントに入る代わりに、カウント中に自分の最初の音を小さく伸ばす
   if (!entry) holdNodes.push(...voice(plan.me[0][2], t0, countIn * spb * 0.9, 0.6, 0.3));   // 入りの練習（2026-11-22）では鳴らさない
   if (fv > 0) plan.fe.forEach(n => holdNodes.push(...voice(n[2], T(n), n[1] * spb * 0.97, fv, 0.3)));
+  // 入りの練習で手本とフェランドが小さく・なしになっても、入りより前のフェランドの音（もらう音）は選んだ大きさで鳴らす
+  else if (entry && fvSet > 0) plan.fe.filter(n => n[0] + plan.shift < entry.beat - 0.01).forEach(n => holdNodes.push(...voice(n[2], T(n), n[1] * spb * 0.97, fvSet, 0.3)));
   const dv = +$("daVol").value;
   if (dv > 0) plan.da.forEach(n => holdNodes.push(...voice(n[2], T(n), n[1] * spb * 0.97, dv, 0.2)));
   const wv = +$("woVol").value;
@@ -749,7 +761,7 @@ function finish() {
     const w = Math.abs(dd) < 0.5 ? "合っている" : (dd > 0 ? "高い " : "低い ") + Math.abs(dd).toFixed(1) + "半音";
     return `<div style="font-size:16px;margin:6px 0"><b>入りの音 ${er.nm}</b>: <span class="${Math.abs(dd) < 0.5 ? "ok" : "off"}">${w}</span>`
       + (hm == null ? "" : `　出だし0.2秒は ${hm >= 0 ? "+" : "−"}${Math.abs(hm).toFixed(1)}半音` + (Math.abs(hm) >= 0.5 ? (hm > 0 ? "（上から入っている）" : "（下から入っている）") : "（最初からその高さ）"))
-      + `<span class="sub">　手本 ${({ "0.8": "ふつう", "0.35": "小さく", "0": "なし" })[$("meVol").value] || ""}</span></div>`;
+      + `<span class="sub">　手本 ${({ "1": "ふつう", "0.4": "小さく", "0": "なし" })[String(vols().mv)] || ""}</span></div>`;
   })();
   const shiftAll = shiftText(notes.filter(r => r.raw != null).map(r => [r.raw, r.t, r.fe]));
   const answer = entryLine + `${shiftAll ? `<div style="color:var(--pull);font-weight:bold;margin:6px 0">${shiftAll}</div>` : ""}<div style="font-size:18px;margin:6px 0"><span class="ok">自分の線 ${pct("ok")}%</span>　<span class="pull">引っぱられ ${pct("pull")}%</span>　<span class="off">その他 ${pct("off")}%</span>${notes.some(r => r.cls === "early") ? `　<span class="early">早く次の音へ ${notes.filter(r => r.cls === "early").length}音</span>` : ""}</div>
@@ -758,7 +770,7 @@ function finish() {
   const d = new Date(), z = x => String(x).padStart(2, "0");
   const take = { v: 1, id: `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}_${z(d.getHours())}${z(d.getMinutes())}${z(d.getSeconds())}`,
     date: d.toISOString(), d: d.toLocaleString("ja-JP"), song: song().title, title, bar0: +$("bar0").value, bar1: +$("bar1").value, pct: +$("pct").value,
-    feVol: +$("feVol").value, daVol: +$("daVol").value, woVol: +$("woVol").value, lat: TEST ? 0 : +$("lat").value, meVol: +$("meVol").value, sens: +$("sens").value, test: !!TEST, ok: pct("ok"), pull: pct("pull"), notes, saved: false,
+    feVol: vols().fv, daVol: +$("daVol").value, woVol: +$("woVol").value, lat: TEST ? 0 : +$("lat").value, meVol: vols().mv, feSolo: $("feSolo").checked,   // 2026-11-25 実際に鳴らした大きさを残す sens: +$("sens").value, test: !!TEST, ok: pct("ok"), pull: pct("pull"), notes, saved: false,
     spb: r2(spb * 1000) / 1000, countIn, audio: null, hideMe: $("hideMe").checked, self: null };
   const takes = loadTakes(); takes.unshift(take); saveTakes(takes); showHist();
   showGuess(take, notes, title, answer);
